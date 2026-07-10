@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: newsletter
+      POSTGRES_PASSWORD: newsletter
+      POSTGRES_DB: newsletter
+    ports:
+      - "5435:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U newsletter"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build: ./backend
+    restart: always
+    ports:
+      - "8585:8585"
+    env_file: ./backend/.env
+    environment:
+      HTTP_PROXY: http://proxy.otsuka-shokai.co.jp:8080
+      HTTPS_PROXY: http://proxy.otsuka-shokai.co.jp:8080
+      http_proxy: http://proxy.otsuka-shokai.co.jp:8080
+      https_proxy: http://proxy.otsuka-shokai.co.jp:8080
+      NO_PROXY: localhost,127.0.0.1,db,difgpu01.tdc.otsuka-shokai.co.jp,macdep01.tdc.otsuka-shokai.co.jp,mta-fm21.otsuka-shokai.co.jp,mta-fm22.otsuka-shokai.co.jp,10.0.0.0/8,.otsuka-shokai.co.jp
+      no_proxy: localhost,127.0.0.1,db,difgpu01.tdc.otsuka-shokai.co.jp,macdep01.tdc.otsuka-shokai.co.jp,mta-fm21.otsuka-shokai.co.jp,mta-fm22.otsuka-shokai.co.jp,10.0.0.0/8,.otsuka-shokai.co.jp
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    restart: always
+    ports:
+      - "3737:3737"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:

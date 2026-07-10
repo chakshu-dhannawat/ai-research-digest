@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Engineer Daily Digest - {{ date }}</title>
+</head>
+<body style="margin:0;padding:0;background:#f7f8fa;font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#1a1a1a;line-height:1.6;-webkit-font-smoothing:antialiased;">
+
+<div style="padding:20px 8px;">
+<div style="max-width:680px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+
+  <!-- ============ HEADER ============ -->
+  <div style="background:linear-gradient(135deg,#4f8fe6 0%,#6a9ff5 50%,#89b4f8 100%);padding:40px 28px 34px;text-align:center;">
+    <h1 style="font-size:26px;font-weight:700;color:#ffffff;margin:0 0 6px;letter-spacing:0.2px;">AI Engineer Daily Digest</h1>
+    <p style="font-size:13px;color:rgba(255,255,255,0.85);margin:0 0 16px;font-weight:400;">{{ labels.tagline if labels else "Curated for AI Engineers @ Otsuka" }}</p>
+    <span style="display:inline-block;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.25);border-radius:20px;padding:5px 18px;font-size:12px;color:#fff;font-weight:500;">{{ date }}</span>
+    {% if site_url %}
+    <div style="margin-top:16px;">
+      <a href="{{ site_url }}" style="display:inline-block;background:#ffffff;color:#2563eb;text-decoration:none;font-size:13px;font-weight:600;padding:9px 22px;border-radius:22px;">{{ labels.explore if labels else "🔎 Browse all articles" }}</a>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ============ BODY ============ -->
+  <div style="padding:24px 24px 32px;">
+
+    {# ---- Section accent colors ---- #}
+    {% set accent_map = {
+      "model_release": "#7c3aed",
+      "labs": "#4f46e5",
+      "voices": "#0891b2",
+      "github": "#24292e",
+      "elastic": "#00bfb3",
+      "anthropic": "#d97706",
+      "news": "#2563eb",
+      "hf_papers": "#ea580c",
+      "arxiv": "#b31b1b"
+    } %}
+
+    {% set topic_bg_map = {
+      "model_release": "#f3f0ff",
+      "labs": "#eef2ff",
+      "voices": "#ecfeff",
+      "github": "#f0f0f0",
+      "elastic": "#e6faf8",
+      "anthropic": "#fef9ee",
+      "news": "#eff4ff",
+      "hf_papers": "#fff7ed",
+      "arxiv": "#fef2f2"
+    } %}
+
+    {% set topic_fg_map = {
+      "model_release": "#6d28d9",
+      "labs": "#4338ca",
+      "voices": "#0e7490",
+      "github": "#24292e",
+      "elastic": "#047a6e",
+      "anthropic": "#92400e",
+      "news": "#1e40af",
+      "hf_papers": "#c2410c",
+      "arxiv": "#991b1b"
+    } %}
+
+    {% for source_label, source_key, items_group in sections %}
+    {% if items_group %}
+    {% set accent = accent_map.get(source_key, "#6b7280") %}
+    {% set topic_bg = topic_bg_map.get(source_key, "#f3f4f6") %}
+    {% set topic_fg = topic_fg_map.get(source_key, "#374151") %}
+
+    <!-- ============ SECTION: {{ source_label }} ============ -->
+    <div style="margin-bottom:28px;">
+
+      <!-- Section header -->
+      <div style="display:flex;align-items:center;gap:10px;padding-bottom:10px;border-bottom:2px solid {{ accent }};margin-bottom:16px;">
+        <span style="font-size:16px;font-weight:700;color:{{ accent }};letter-spacing:0.3px;">{{ source_label }}</span>
+        <span style="font-size:11px;color:#9ca3af;font-weight:500;">{{ items_group|length }} item{{ 's' if items_group|length != 1 else '' }}</span>
+      </div>
+
+      {% for item in items_group %}
+      {% set score = item.relevance_score|default(0)|float %}
+
+      <!-- Card -->
+      <div style="border:1px solid #eee;border-radius:8px;padding:16px 18px;margin-bottom:12px;background:#ffffff;border-left:3px solid {{ accent }};">
+
+        <!-- Card top row: score + meta -->
+        <div style="margin-bottom:8px;">
+          {# Score pill #}
+          {% if score >= 7 %}
+          <span style="display:inline-block;font-size:11px;font-weight:700;padding:2px 10px;border-radius:12px;color:#fff;background:#059669;">{{ "%.0f"|format(score) }}/10</span>
+          {% elif score >= 4 %}
+          <span style="display:inline-block;font-size:11px;font-weight:700;padding:2px 10px;border-radius:12px;color:#fff;background:#d97706;">{{ "%.0f"|format(score) }}/10</span>
+          {% else %}
+          <span style="display:inline-block;font-size:11px;font-weight:700;padding:2px 10px;border-radius:12px;color:#fff;background:#dc2626;">{{ "%.0f"|format(score) }}/10</span>
+          {% endif %}
+
+          {# Stars for GitHub #}
+          {% if item.stars %}
+          <span style="display:inline-block;font-size:11px;font-weight:600;color:#b45309;margin-left:6px;">⭐ {{ "{:,}".format(item.stars|int) }}</span>
+          {% endif %}
+
+          {# Language badge #}
+          {% if item.language %}
+          <span style="display:inline-block;font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#ede9fe;color:#6d28d9;margin-left:4px;">{{ item.language }}</span>
+          {% endif %}
+        </div>
+
+        <!-- Title -->
+        <h3 style="font-size:15px;font-weight:600;margin:0 0 4px;line-height:1.45;">
+          {% if item.url %}<a href="{{ item.url }}" style="color:#1e40af;text-decoration:none;">{{ item.full_name or item.title }}</a>{% else %}{{ item.full_name or item.title }}{% endif %}
+        </h3>
+
+        {# Show subtitle for GitHub repos that have full_name different from title #}
+        {% if item.full_name and item.title and item.full_name != item.title %}
+        <p style="font-size:12px;color:#6b7280;margin:0 0 6px;line-height:1.4;">{{ item.title }}</p>
+        {% endif %}
+
+        <!-- Topics pills -->
+        {% if item.topics and item.topics|length > 0 %}
+        <div style="margin:6px 0 10px;">
+          {% for t in item.topics[:6] %}
+          <span style="display:inline-block;font-size:10px;background:{{ topic_bg }};color:{{ topic_fg }};padding:2px 8px;border-radius:10px;margin:0 4px 4px 0;font-weight:500;">{{ t }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Summary -->
+        {% if item.summary %}
+        <p style="font-size:13px;color:#4b5563;line-height:1.7;margin:6px 0 0;">{{ item.summary }}</p>
+        {% endif %}
+
+        <!-- Application box -->
+        {% if item.application %}
+        <div style="margin-top:12px;padding:10px 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;">
+          <p style="font-size:10px;font-weight:700;color:#15803d;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 3px;">{{ labels.apply if labels else "💡 How to apply" }}</p>
+          <p style="font-size:12px;color:#166534;line-height:1.6;margin:0;">{{ item.application }}</p>
+        </div>
+        {% endif %}
+
+      </div>
+      {% endfor %}
+
+    </div>
+    {% endif %}
+    {% endfor %}
+
+  </div>
+
+  <!-- ============ FOOTER ============ -->
+  <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:22px 24px;text-align:center;">
+    {% if site_url %}
+    <p style="margin:0 0 10px;"><a href="{{ site_url }}" style="font-size:12px;color:#2563eb;text-decoration:none;font-weight:600;">{{ labels.explore if labels else "🔎 Browse all articles" }}</a></p>
+    {% endif %}
+    <p style="font-size:12px;color:#6b7280;margin:0 0 4px;font-weight:600;">AI Engineer Daily Digest</p>
+    <p style="font-size:11px;color:#9ca3af;margin:0;">Powered by on-prem LLM &middot; Otsuka AI Team</p>
+  </div>
+
+</div>
+</div>
+
+</body>
+</html>
