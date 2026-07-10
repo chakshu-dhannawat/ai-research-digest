@@ -13,66 +13,6 @@ from app.utils import now_jst
 
 logger = logging.getLogger(__name__)
 
-ARXIV_QUERIES = [
-    "cat:cs.AI",
-    "cat:cs.CL",
-    "cat:cs.CV",
-    "cat:cs.LG",
-]
-
-
-
-async def fetch_arxiv_papers(max_per_category: int = 3) -> list[dict]:
-    papers = []
-
-    async with httpx.AsyncClient(proxy=settings.http_proxy, timeout=30, follow_redirects=True) as client:
-        for cat in ARXIV_QUERIES:
-            url = (
-                f"https://export.arxiv.org/api/query?"
-                f"search_query={cat}&sortBy=submittedDate&sortOrder=descending"
-                f"&start=0&max_results={max_per_category}"
-            )
-            try:
-                resp = await client.get(url)
-                resp.raise_for_status()
-                root = ET.fromstring(resp.text)
-                ns = {"atom": "http://www.w3.org/2005/Atom"}
-                for entry in root.findall("atom:entry", ns):
-                    title = entry.findtext("atom:title", "", ns).strip().replace("\n", " ")
-                    summary = entry.findtext("atom:summary", "", ns).strip().replace("\n", " ")[:500]
-                    link = ""
-                    for l in entry.findall("atom:link", ns):
-                        if l.get("type") == "text/html":
-                            link = l.get("href", "")
-                            break
-                    if not link:
-                        link = entry.findtext("atom:id", "", ns)
-                    published = entry.findtext("atom:published", "", ns).strip()
-                    papers.append({
-                        "source": "arxiv",
-                        "title": title,
-                        "url": link,
-                        "description": summary,
-                        "stars": None,
-                        "language": None,
-                        "topics": [cat.replace("cat:", "")],
-                        "published_at": published or None,
-                    })
-            except Exception as e:
-                logger.warning("arXiv fetch failed for %s: %s", cat, e)
-
-    seen_urls = set()
-    deduped = []
-    for p in papers:
-        if p["url"] not in seen_urls:
-            seen_urls.add(p["url"])
-            deduped.append(p)
-    papers = deduped
-
-    logger.info("Fetched %d arXiv papers", len(papers))
-    return papers
-
-
 async def fetch_hf_papers(max_per_day: int = 5, populated_days: int = 1, lookback_days: int = 6) -> list[dict]:
     """HuggingFace Daily Papers — community-curated TRENDING papers, ranked by
     upvotes. This surfaces the high-impact papers that digests like The AI

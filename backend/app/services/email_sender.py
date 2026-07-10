@@ -63,7 +63,6 @@ def render_newsletter(items: list[dict], date_str: str | None = None, lang: str 
     github_items = [i for i in items if i.get("source") == "github"]
     elastic_items = [i for i in items if i.get("source") == "newsletter" and any("elastic" in t.lower() for t in i.get("topics", []))]
     other_newsletter = [i for i in items if i.get("source") == "newsletter" and i not in elastic_items]
-    arxiv_items = [i for i in items if i.get("source") == "arxiv"]
     hf_paper_items = [i for i in items if i.get("source") == "hf_papers"]
     web_items = [i for i in items if i.get("source") == "web_search"]
     news_items = other_newsletter + web_items
@@ -79,7 +78,6 @@ def render_newsletter(items: list[dict], date_str: str | None = None, lang: str 
         (titles["elastic"], "elastic", elastic_items),
         (titles["news"], "news", news_items),
         (titles["hf_papers"], "hf_papers", hf_paper_items),
-        (titles["arxiv"], "arxiv", arxiv_items),
     ]
 
     return template.render(date=date_str, items=items, sections=sections, lang=lang, labels=labels, site_url=settings.site_url)

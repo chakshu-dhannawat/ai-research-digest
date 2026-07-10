@@ -7,7 +7,7 @@ from app.config import settings
 from app.utils import now_jst
 from app.database import get_pool
 from app.services.github_crawler import fetch_trending_repos
-from app.services.news_fetcher import fetch_arxiv_papers, fetch_ai_newsletters, fetch_model_releases, fetch_web_search_news, fetch_ai_voices, fetch_hf_papers, fetch_ai_labs, filter_articles_by_age
+from app.services.news_fetcher import fetch_ai_newsletters, fetch_model_releases, fetch_web_search_news, fetch_ai_voices, fetch_hf_papers, fetch_ai_labs, filter_articles_by_age
 from app.services.llm_summarizer import score_and_summarize, translate_items_to_japanese, current_model, reset_llm_resolution
 from app.services.dedup import filter_already_sent, mark_as_sent
 from app.services.email_sender import render_newsletter, send_email
@@ -30,7 +30,6 @@ async def run_pipeline(
 
     try:
         github_items = await asyncio.to_thread(fetch_trending_repos)
-        arxiv_items = await fetch_arxiv_papers()
         hf_paper_items = await fetch_hf_papers()
         newsletter_items = await fetch_ai_newsletters()
         labs_items = await fetch_ai_labs()
@@ -39,9 +38,9 @@ async def run_pipeline(
         voices_items = await fetch_ai_voices()
 
         await _update_run(pool, run_id, github_found=len(github_items),
-                          news_found=len(arxiv_items) + len(hf_paper_items) + len(newsletter_items) + len(labs_items) + len(model_release_items) + len(web_search_items) + len(voices_items))
+                          news_found=len(hf_paper_items) + len(newsletter_items) + len(labs_items) + len(model_release_items) + len(web_search_items) + len(voices_items))
 
-        all_items = github_items + arxiv_items + hf_paper_items + newsletter_items + labs_items + model_release_items + web_search_items + voices_items
+        all_items = github_items + hf_paper_items + newsletter_items + labs_items + model_release_items + web_search_items + voices_items
 
         # Drop anything older than ~6 months (probes the web for dates on
         # date-less scraped articles), before dedup/scoring.

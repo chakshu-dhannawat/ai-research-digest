@@ -41,7 +41,12 @@ async def filter_already_sent(pool: asyncpg.Pool, items: list[dict]) -> list[dic
 async def mark_as_sent(pool: asyncpg.Pool, items: list[dict]):
     hashes = [it.get("_hash") or item_hash(it) for it in items]
     async with pool.acquire() as conn:
+        # Refresh sent_date on conflict. With DO NOTHING the date froze at the
+        # first send, so once an item aged past the recency window it resurfaced
+        # every day forever. Bumping it restarts the suppression window, so an
+        # evergreen item resurfaces at most once per dedup_window_days.
         await conn.executemany(
-            "INSERT INTO sent_item_hashes (item_hash) VALUES ($1) ON CONFLICT DO NOTHING",
+            "INSERT INTO sent_item_hashes (item_hash) VALUES ($1) "
+            "ON CONFLICT (item_hash) DO UPDATE SET sent_date = CURRENT_DATE",
             [(h,) for h in hashes],
         )

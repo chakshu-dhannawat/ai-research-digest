@@ -3,6 +3,9 @@ backend/.env
 *.env
 !*.env.example
 
+# Subscriber PII — not tracked in the repo
+SUBSCRIBERS.md
+
 # Python
 __pycache__/
 *.py[cod]
