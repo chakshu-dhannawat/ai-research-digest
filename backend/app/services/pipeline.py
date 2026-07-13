@@ -14,6 +14,26 @@ from app.services.email_sender import render_newsletter, send_email
 
 logger = logging.getLogger(__name__)
 
+# Items scoring below this are junk (beginner/marketing/off-scope) OR silent
+# scoring failures (which fall back to score 0) — neither belongs in the digest,
+# even to fill it out. They are still saved to the searchable catalog.
+MIN_DIGEST_SCORE = 4
+
+# Tie-breaker for equal relevance scores: prefer higher-signal editorial sources,
+# then more substantive text. Without this, equal scores fell to fetch (source
+# concat) order, which let arbitrary ordering decide the top-N cutoff.
+_SOURCE_RANK = {
+    "model_release": 0, "labs": 1, "hf_papers": 2, "voices": 3,
+    "newsletter": 4, "github": 5, "web_search": 6,
+}
+
+
+def _digest_sort_key(item: dict) -> tuple:
+    score = item.get("relevance_score") or 0
+    rank = _SOURCE_RANK.get(item.get("source", ""), 9)
+    desc_len = len(item.get("description") or "")
+    return (-score, rank, -desc_len)  # score desc, source rank asc, longer desc first
+
 
 async def run_pipeline(
     recipients: list[str] | None = None,
@@ -50,7 +70,7 @@ async def run_pipeline(
             all_items = await filter_already_sent(pool, all_items)
 
         scored = await asyncio.to_thread(score_and_summarize, all_items)
-        scored.sort(key=lambda x: x.get("relevance_score", 0), reverse=True)
+        scored.sort(key=_digest_sort_key)
 
         # Persist the full scored set to the searchable catalog (deduped by URL).
         # Isolated so a catalog failure never blocks the newsletter send.
@@ -59,7 +79,11 @@ async def run_pipeline(
         except Exception as e:
             logger.warning("Failed to save fetched_items catalog: %s", e)
 
-        top_items = scored[: settings.top_n_items]
+        eligible = [it for it in scored if (it.get("relevance_score") or 0) >= MIN_DIGEST_SCORE]
+        if len(eligible) < len(scored):
+            logger.info("Digest floor: %d/%d items below score %d dropped from send (kept in catalog)",
+                        len(scored) - len(eligible), len(scored), MIN_DIGEST_SCORE)
+        top_items = eligible[: settings.top_n_items]
 
         if not top_items:
             await _finish_run(pool, run_id, "completed", items_after_dedup=0)
