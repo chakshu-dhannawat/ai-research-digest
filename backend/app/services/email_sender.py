@@ -1,5 +1,6 @@
 import logging
 import smtplib
+import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -94,8 +95,19 @@ def send_email(html_body: str, recipients: list[str], subject: str | None = None
     msg["To"] = settings.sender_email
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-    with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=30) as server:
-        server.ehlo()
-        server.sendmail(settings.sender_email, recipients, msg.as_string())
-
-    logger.info("Email sent (bcc) to %d recipients: %s", len(recipients), recipients)
+    # Retry on transient network/SMTP failures — a single blip reaching the mail
+    # server (e.g. Errno 101 Network unreachable) once dropped a whole day's send.
+    for attempt in range(1, 4):
+        try:
+            with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=30) as server:
+                server.ehlo()
+                server.sendmail(settings.sender_email, recipients, msg.as_string())
+            logger.info("Email sent (bcc) to %d recipients: %s", len(recipients), recipients)
+            return
+        except (OSError, smtplib.SMTPException) as e:
+            if attempt == 3:
+                logger.error("SMTP send failed after 3 attempts: %s", e)
+                raise
+            delay = 10 * attempt  # 10s, 20s
+            logger.warning("SMTP send attempt %d/3 failed (%s); retrying in %ds", attempt, e, delay)
+            time.sleep(delay)
