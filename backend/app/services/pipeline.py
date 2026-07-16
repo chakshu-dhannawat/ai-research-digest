@@ -19,6 +19,11 @@ logger = logging.getLogger(__name__)
 # even to fill it out. They are still saved to the searchable catalog.
 MIN_DIGEST_SCORE = 4
 
+# Even on a thin day, send at least this many items — backfilled from the
+# highest-scoring leftovers below MIN_DIGEST_SCORE — so the digest never looks
+# broken. Only kicks in if fewer than this many items clear the real floor.
+MIN_DIGEST_ITEMS = 3
+
 # Tie-breaker for equal relevance scores: prefer higher-signal editorial sources,
 # then more substantive text. Without this, equal scores fell to fetch (source
 # concat) order, which let arbitrary ordering decide the top-N cutoff.
@@ -84,6 +89,18 @@ async def run_pipeline(
             logger.info("Digest floor: %d/%d items below score %d dropped from send (kept in catalog)",
                         len(scored) - len(eligible), len(scored), MIN_DIGEST_SCORE)
         top_items = eligible[: settings.top_n_items]
+
+        # Thin-day backfill: `scored` is already sorted best-first, so the next
+        # leftovers are the least-bad of what's left, not arbitrary items.
+        if len(top_items) < MIN_DIGEST_ITEMS:
+            picked_ids = {id(it) for it in top_items}
+            leftovers = [it for it in scored if id(it) not in picked_ids]
+            needed = MIN_DIGEST_ITEMS - len(top_items)
+            backfill = leftovers[:needed]
+            if backfill:
+                logger.info("Digest backfill: only %d item(s) cleared score %d; adding %d below-floor item(s) to reach %d",
+                            len(top_items), MIN_DIGEST_SCORE, len(backfill), MIN_DIGEST_ITEMS)
+                top_items = top_items + backfill
 
         if not top_items:
             await _finish_run(pool, run_id, "completed", items_after_dedup=0)
