@@ -94,15 +94,16 @@ def send_email(html_body: str, recipients: list[str], subject: str | None = None
     # of the headers, so no recipient sees the others' addresses.
     msg["To"] = settings.sender_email
     msg.attach(MIMEText(html_body, "html", "utf-8"))
+    _send_smtp(settings.sender_email, recipients, msg)
 
-    # Retry on transient network/SMTP failures — a single blip reaching the mail
-    # server (e.g. Errno 101 Network unreachable) once dropped a whole day's send.
+
+def _send_smtp(sender: str, recipients: list[str], msg: MIMEMultipart) -> None:
+    """Shared SMTP transport with retry."""
     for attempt in range(1, 4):
         try:
             with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=30) as server:
                 server.ehlo()
-                server.sendmail(settings.sender_email, recipients, msg.as_string())
-            logger.info("Email sent (bcc) to %d recipients: %s", len(recipients), recipients)
+                server.sendmail(sender, recipients, msg.as_string())
             return
         except (OSError, smtplib.SMTPException) as e:
             if attempt == 3:
@@ -111,3 +112,15 @@ def send_email(html_body: str, recipients: list[str], subject: str | None = None
             delay = 10 * attempt  # 10s, 20s
             logger.warning("SMTP send attempt %d/3 failed (%s); retrying in %ds", attempt, e, delay)
             time.sleep(delay)
+
+
+def send_alert_email(subject: str, body_text: str) -> None:
+    """Notify the configured developer address when the newsletter fails to send."""
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = settings.sender_email
+    msg["To"] = settings.alert_email
+    msg.attach(MIMEText(body_text, "plain", "utf-8"))
+
+    _send_smtp(settings.sender_email, [settings.alert_email], msg)
+    logger.info("Alert email sent to %s", settings.alert_email)

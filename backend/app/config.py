@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     smtp_host: str = "mta-fm21.otsuka-shokai.co.jp"
     smtp_port: int = 25
     sender_email: str = "chakshu@otsuka-shokai.co.jp"
+    alert_email: str = "chakshu@otsuka-shokai.co.jp"
     default_recipients: str = "chakshu@otsuka-shokai.co.jp,rahil@otsuka-shokai.co.jp,naman@otsuka-shokai.co.jp"
 
     http_proxy: str = "http://proxy.otsuka-shokai.co.jp:8080"
