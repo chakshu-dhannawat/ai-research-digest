@@ -65,7 +65,7 @@ Via the UI: **Test Send** tab → enter email(s) → click Send.
 Via API:
 ```bash
 # Test run (skips dedup, skips mark-sent)
-curl -X POST http://iitgpu07:8585/api/pipeline/send-now \
+curl -X POST http://iitgpu07.hon.otsuka-shokai:8585/api/pipeline/send-now \
   -H "Content-Type: application/json" \
   -d '{"recipients": ["you@example.com"]}'
 ```

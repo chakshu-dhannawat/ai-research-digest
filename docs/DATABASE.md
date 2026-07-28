@@ -1,7 +1,7 @@
 # Database Schema
 
 PostgreSQL 16. Connection: `postgresql://newsletter:newsletter@db:5432/newsletter` (internal Docker network).
-External access: `iitgpu07:5435`.
+External access: `iitgpu07.hon.otsuka-shokai:5435`.
 
 Schema is initialized by `db/init.sql` on first start. Migrations are applied at startup in `backend/app/database.py` via `ALTER TABLE … ADD COLUMN IF NOT EXISTS`.
 

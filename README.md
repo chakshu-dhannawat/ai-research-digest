@@ -11,9 +11,9 @@ docker compose up -d
 
 | Service  | URL                        | Purpose              |
 |----------|----------------------------|----------------------|
-| Frontend | http://iitgpu07:3737       | Admin UI             |
-| Backend  | http://iitgpu07:8585       | FastAPI + scheduler  |
-| Database | iitgpu07:5435              | PostgreSQL (pgdata)  |
+| Frontend | http://iitgpu07.hon.otsuka-shokai:3737       | Admin UI             |
+| Backend  | http://iitgpu07.hon.otsuka-shokai:8585       | FastAPI + scheduler  |
+| Database | iitgpu07.hon.otsuka-shokai:5435              | PostgreSQL (pgdata)  |
 
 ## What It Does
 

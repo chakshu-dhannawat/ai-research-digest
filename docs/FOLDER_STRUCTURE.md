@@ -85,7 +85,7 @@ docker compose logs backend -f
 docker compose restart backend
 
 # Connect to DB directly
-psql -h iitgpu07 -p 5435 -U newsletter -d newsletter
+psql -h iitgpu07.hon.otsuka-shokai -p 5435 -U newsletter -d newsletter
 
 # Rebuild frontend after code change
 docker compose build frontend && docker compose up -d frontend
