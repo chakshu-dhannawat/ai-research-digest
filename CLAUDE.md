@@ -2,23 +2,23 @@
 
 ## Git identity (required)
 
-Always commit as the **chakshu** user in this repo:
+Always commit as the **chakshu123** GitLab user in this repo:
 
-- Name: `chakshu`
+- Name: `chakshu123`
 - GitLab username: `chakshu123`
 - Email: `chakshu@otsuka-shokai.co.jp`
 
 The repo-local git config is already set to this. Before committing, verify:
 
 ```bash
-git config user.name    # -> chakshu
+git config user.name    # -> chakshu123
 git config user.email   # -> chakshu@otsuka-shokai.co.jp
 ```
 
 If it drifts (e.g. inherits a global identity), reset it:
 
 ```bash
-git config user.name "chakshu"
+git config user.name "chakshu123"
 git config user.email "chakshu@otsuka-shokai.co.jp"
 ```
 
