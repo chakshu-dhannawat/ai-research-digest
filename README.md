@@ -22,7 +22,8 @@ docker compose up -d
 3. Scores every item 0–10 with the Why-LLM model, writes summaries and application notes
 4. Deduplicates against items sent in the last 14 days
 5. Emails the top 10 items to all active subscribers — English digest to EN subscribers, Japanese translation to JA subscribers
-6. Persists all scored items to a searchable catalog (Explore page)
+6. Posts the English digest to the configured Microsoft Teams channel (in addition to email)
+7. Persists all scored items to a searchable catalog (Explore page)
 
 ## Documentation
 

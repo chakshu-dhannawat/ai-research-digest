@@ -51,28 +51,40 @@ def _truncate(text: str | None, max_len: int = 180) -> str:
     return text[: max_len - 3].rstrip() + "..."
 
 
+def _title_text(item: dict) -> str:
+    title = item.get("title") or item.get("name", "Untitled")
+    url = item.get("url", "")
+    if url:
+        return f"[{title}]({url})"
+    return title
+
+
 def build_teams_card(items: list[dict]) -> dict:
     """Build a Microsoft Teams Adaptive Card payload for the daily digest."""
     date_str = now_jst().strftime("%Y-%m-%d")
     body: list[dict] = [
         {"type": "TextBlock", "size": "Medium", "weight": "Bolder", "text": f"🤖 AI Engineer Daily Digest — {date_str}"},
-        {"type": "TextBlock", "text": f"{len(items)} curated items", "wrap": True, "isSubtle": True},
+        {"type": "TextBlock", "text": f"{len(items)} curated items · English digest", "wrap": True, "isSubtle": True},
     ]
 
-    for section_title, section_items in _group_items(items):
-        if not section_items:
-            continue
-        body.append({"type": "TextBlock", "text": section_title, "weight": "Bolder", "spacing": "Medium"})
+    grouped = _group_items(items)
+    visible_groups = [(t, s) for t, s in grouped if s]
+    for idx, (section_title, section_items) in enumerate(visible_groups):
+        body.append({
+            "type": "TextBlock",
+            "text": section_title,
+            "weight": "Bolder",
+            "spacing": "Medium" if idx == 0 else "Large",
+            "separator": idx > 0,
+        })
         for item in section_items:
-            title = item.get("title") or item.get("name", "Untitled")
-            url = item.get("url", "")
             summary = _truncate(item.get("summary"), 180)
             score = item.get("relevance_score")
             score_text = f" · score: {score:.1f}" if score is not None else ""
 
             body.append({
                 "type": "TextBlock",
-                "text": f"[{title}]({url})",
+                "text": _title_text(item),
                 "wrap": True,
             })
             if summary:

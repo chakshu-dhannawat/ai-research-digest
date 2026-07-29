@@ -47,8 +47,9 @@ Both groups receive the **same top-10 items**, just translated.
 
 ## Teams Channel Delivery
 
-- Optional: set `TEAMS_WEBHOOK_URL` to a Microsoft Teams **Incoming Webhook** connector URL.
+- Optional: set `TEAMS_WEBHOOK_URL` to a Microsoft Teams **Incoming Webhook** or **Power Automate** workflow URL.
 - Posts the English-language digest as an Adaptive Card once per production run.
+- Card layout: title + date, section headers (Model Releases, GitHub, arXiv, etc.), each item as a clickable title with a short summary and score, plus a **Browse all articles** button.
 - Teams failures are logged and recorded in `pipeline_runs.teams_error` but do **not** fail the email send.
 
 ## Batch Sizing (LLM)
