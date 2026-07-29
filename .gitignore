@@ -6,6 +6,9 @@ backend/.env
 # Subscriber PII — not tracked in the repo
 SUBSCRIBERS.md
 
+# Individual progress reports
+2026*.md
+
 # Python
 __pycache__/
 *.py[cod]
