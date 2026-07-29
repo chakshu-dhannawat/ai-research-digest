@@ -84,6 +84,8 @@ Audit log for every pipeline execution.
 | items_after_dedup | INTEGER | Items actually sent |
 | error_message | TEXT | |
 | is_test | BOOLEAN | |
+| teams_posted_at | TIMESTAMP | Set when the Teams card was posted |
+| teams_error | TEXT | Populated if the Teams post failed |
 
 ---
 

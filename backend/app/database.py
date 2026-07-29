@@ -79,6 +79,16 @@ async def get_pool() -> asyncpg.Pool:
                 )
             except Exception:
                 pass
+            # Migration: track Microsoft Teams channel delivery per pipeline run.
+            try:
+                await conn.execute(
+                    "ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS teams_posted_at TIMESTAMP"
+                )
+                await conn.execute(
+                    "ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS teams_error TEXT"
+                )
+            except Exception:
+                pass
             # Migration: normalize existing emails to lowercase so case variants
             # ("Aryan@..." vs "aryan@...") resolve to the same subscriber.
             try:

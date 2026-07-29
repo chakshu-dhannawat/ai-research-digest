@@ -20,12 +20,15 @@ Every run (cron or manual) executes `run_pipeline()` in `backend/app/services/pi
       │            Powers the Explore page. Isolated — catalog failure never blocks email.
       ▼
 5. SEND EMAIL     For each language group (en / ja):
-      │              ja → translate summaries + application to Japanese (敬語)
-      │              Render Jinja2 HTML template
-      │              Send BCC email via mta-fm21:25
-      │              Record in newsletters + newsletter_items tables
-      ▼
-6. MARK SENT      Write hashes to sent_item_hashes (production only, once per run)
+       │              ja → translate summaries + application to Japanese (敬語)
+       │              Render Jinja2 HTML template
+       │              Send BCC email via mta-fm21:25
+       │              Record in newsletters + newsletter_items tables
+       ▼
+6. TEAMS POST     If TEAMS_WEBHOOK_URL is set, post an Adaptive Card digest
+       │            to the Microsoft Teams channel (production only, non-blocking)
+       ▼
+7. MARK SENT      Write hashes to sent_item_hashes (production only, once per run)
 ```
 
 ## Language Handling
@@ -41,6 +44,12 @@ Both groups receive the **same top-10 items**, just translated.
 - BCC: all recipients in a single `Bcc:` header; `To:` is set to the sender address
 - One BCC email per language group per run
 - SMTP: `mta-fm21.otsuka-shokai.co.jp:25`, no auth, no TLS
+
+## Teams Channel Delivery
+
+- Optional: set `TEAMS_WEBHOOK_URL` to a Microsoft Teams **Incoming Webhook** connector URL.
+- Posts the English-language digest as an Adaptive Card once per production run.
+- Teams failures are logged and recorded in `pipeline_runs.teams_error` but do **not** fail the email send.
 
 ## Batch Sizing (LLM)
 

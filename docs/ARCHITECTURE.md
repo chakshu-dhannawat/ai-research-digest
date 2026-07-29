@@ -21,6 +21,7 @@
                         └─────────────────────────────────────────┘
 
   External dependencies (accessed via corporate proxy):
+    Teams webhook URL  ──  Microsoft Teams Incoming Webhook (optional channel post)
     macdep01:8001/v1   ──  Why-LLM (scoring, vLLM)
     macdep01:8008/v1   ──  MiMo-V2.5 via LiteLLM (ad-hoc test sends only)
     mta-fm21:25        ──  SMTP relay (no auth, no TLS)

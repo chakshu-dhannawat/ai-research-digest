@@ -11,6 +11,7 @@ from app.services.news_fetcher import fetch_ai_newsletters, fetch_model_releases
 from app.services.llm_summarizer import score_and_summarize, translate_items_to_japanese, current_model, reset_llm_resolution
 from app.services.dedup import filter_already_sent, mark_as_sent
 from app.services.email_sender import render_newsletter, send_email
+from app.services.teams_sender import send_teams_digest
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,15 @@ async def run_pipeline(
         if not is_test:
             await mark_as_sent(pool, top_items)
 
+        # Best-effort Teams channel post (prod only, non-blocking).
+        if not is_test:
+            try:
+                teams_ok = await send_teams_digest(top_items)
+                await _record_teams_status(pool, run_id, error=None if teams_ok else "unknown error")
+            except Exception as e:
+                logger.exception("Teams post failed; continuing pipeline: %s", e)
+                await _record_teams_status(pool, run_id, error=str(e))
+
         await _finish_run(pool, run_id, "completed", items_after_dedup=len(top_items))
 
         logger.info("Pipeline complete: %d items sent to %s", len(top_items), lang_map)
@@ -172,6 +182,15 @@ async def _finish_run(pool, run_id: int, status: str, items_after_dedup: int = 0
         await conn.execute(
             "UPDATE pipeline_runs SET finished_at=NOW(), status=$1, items_after_dedup=$2, error_message=$3 WHERE id=$4",
             status, items_after_dedup, error, run_id,
+        )
+
+
+async def _record_teams_status(pool, run_id: int, error: str | None = None):
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE pipeline_runs SET teams_posted_at=CASE WHEN $1 IS NULL THEN NOW() ELSE NULL END, "
+            "teams_error=$1 WHERE id=$2",
+            error, run_id,
         )
 
 

@@ -39,7 +39,9 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
     news_items_found INTEGER DEFAULT 0,
     items_after_dedup INTEGER DEFAULT 0,
     error_message TEXT,
-    is_test BOOLEAN NOT NULL DEFAULT FALSE
+    is_test BOOLEAN NOT NULL DEFAULT FALSE,
+    teams_posted_at TIMESTAMP,
+    teams_error TEXT
 );
 
 CREATE TABLE IF NOT EXISTS subscribers (

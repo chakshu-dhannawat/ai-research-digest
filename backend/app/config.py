@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     # Public URL of the newsletter web UI (Explore/subscribe homepage), shown in emails.
     site_url: str = "http://iitgpu07.hon.otsuka-shokai.co.jp:3737/"
 
+    # Microsoft Teams channel Incoming Webhook URL. Leave empty to skip Teams delivery.
+    teams_webhook_url: str = ""
+
     smtp_host: str = "mta-fm21.otsuka-shokai.co.jp"
     smtp_port: int = 25
     sender_email: str = "chakshu@otsuka-shokai.co.jp"
