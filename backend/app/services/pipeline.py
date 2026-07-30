@@ -187,11 +187,16 @@ async def _finish_run(pool, run_id: int, status: str, items_after_dedup: int = 0
 
 async def _record_teams_status(pool, run_id: int, error: str | None = None):
     async with pool.acquire() as conn:
-        await conn.execute(
-            "UPDATE pipeline_runs SET teams_posted_at=CASE WHEN $1 IS NULL THEN NOW() ELSE NULL END, "
-            "teams_error=$1 WHERE id=$2",
-            error, run_id,
-        )
+        if error is None:
+            await conn.execute(
+                "UPDATE pipeline_runs SET teams_posted_at=NOW(), teams_error=NULL WHERE id=$1",
+                run_id,
+            )
+        else:
+            await conn.execute(
+                "UPDATE pipeline_runs SET teams_posted_at=NULL, teams_error=$1 WHERE id=$2",
+                error, run_id,
+            )
 
 
 # Sources whose feed/topic name is a meaningful publisher brand worth tagging
