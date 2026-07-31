@@ -5,30 +5,39 @@ Every run (cron or manual) executes `run_pipeline()` in `backend/app/services/pi
 ## Steps
 
 ```
-1. FETCH          Gather raw items from all sources in parallel
-      │
-      ▼
-2. DEDUP          Drop items already sent within the last 14 days
-      │            (hash = sha256(source:title)[:32], checked against sent_item_hashes)
-      │            Test runs skip this step.
-      ▼
-3. SCORE          Send all items to Why-LLM in batches of 3
-      │            Each item gets: relevance_score (0-10), summary, application, keywords
-      │            Sort descending by score → take top 10
-      ▼
-4. SAVE CATALOG   Upsert all scored items into fetched_items (deduped by URL)
-      │            Powers the Explore page. Isolated — catalog failure never blocks email.
-      ▼
-5. SEND EMAIL     For each language group (en / ja):
-       │              ja → translate summaries + application to Japanese (敬語)
-       │              Render Jinja2 HTML template
-       │              Send BCC email via mta-fm21:25
-       │              Record in newsletters + newsletter_items tables
+1. FETCH          Gather raw items from all sources concurrently
+       │            (GitHub, HF Papers, newsletters, labs, voices, model releases, web)
        ▼
-6. TEAMS POST     If TEAMS_WEBHOOK_URL is set, post an Adaptive Card digest
-       │            to the Microsoft Teams channel (production only, non-blocking)
+2. RECENCY        Keep items published within the last 3 months (configurable via
+       │            MAX_ARTICLE_AGE_DAYS). Date extraction order per item:
+       │              feed date → HTML metadata/JSON-LD/<time>/URL path → LLM fallback
+       │            Scraped listing-page items fall back to "today" only if no real date is found.
+       │            Items without any date are dropped.
        ▼
-7. MARK SENT      Write hashes to sent_item_hashes (production only, once per run)
+3. REFILL         If a source falls below its minimum target, do one wider fetch pass
+       │            for that source only, then re-apply the recency filter.
+       ▼
+4. DEDUP          Drop items already sent within the last 14 days
+       │            (hash = sha256(source:title)[:32], checked against sent_item_hashes)
+       │            Test runs skip this step.
+       ▼
+5. SCORE          Send candidates to the LLM in batches of 3
+       │            Each item gets: relevance_score (0-10), summary, application, keywords
+       │            Sort descending by score → take top 10
+       ▼
+6. SAVE CATALOG   Upsert all scored items into fetched_items (deduped by URL)
+       │            Powers the Explore page. Isolated — catalog failure never blocks email.
+       ▼
+7. SEND EMAIL     For each language group (en / ja):
+        │              ja → translate summaries + application to Japanese (敬語)
+        │              Render Jinja2 HTML template
+        │              Send BCC email via mta-fm21:25
+        │              Record in newsletters + newsletter_items tables
+        ▼
+8. TEAMS POST     If TEAMS_WEBHOOK_URL is set, post an Adaptive Card digest
+        │            to the Microsoft Teams channel (production only, non-blocking)
+        ▼
+9. MARK SENT      Write hashes to sent_item_hashes (production only, once per run)
 ```
 
 ## Language Handling
@@ -63,8 +72,9 @@ Why-LLM has a 4096-token context window.
 
 | Stage | Count |
 |-------|-------|
-| Raw fetched | ~80–120 items |
-| After 14-day dedup | ~30–60 items |
+| Raw fetched | ~100–150 items |
+| After recency filter (90d) + refill | ~50 candidates capped |
+| After 14-day dedup | ~35–50 items |
 | After scoring + sort | top 10 sent |
 | Catalog (cumulative) | 400+ items |
 

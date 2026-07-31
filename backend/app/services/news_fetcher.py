@@ -3,17 +3,21 @@ import logging
 import re
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
-from email.utils import parsedate_to_datetime
 
 import httpx
 from duckduckgo_search import DDGS
 
 from app.config import settings
 from app.utils import now_jst
+from app.services.date_extractor import parse_any_date, enrich_and_filter_by_age
 
 logger = logging.getLogger(__name__)
 
-async def fetch_hf_papers(max_per_day: int = 5, populated_days: int = 1, lookback_days: int = 6) -> list[dict]:
+async def fetch_hf_papers(max_per_day: int = 5, populated_days: int = 1, lookback_days: int = 6, max_days_total: int | None = None) -> list[dict]:
+    """HuggingFace Daily Papers.
+
+    `max_days_total` is a hard ceiling used during refill passes to avoid
+    unbounded lookback while still satisfying minimum-item targets."""
     """HuggingFace Daily Papers — community-curated TRENDING papers, ranked by
     upvotes. This surfaces the high-impact papers that digests like The AI
     Timeline feature. Tagged as its own source ("hf_papers").
@@ -32,11 +36,12 @@ async def fetch_hf_papers(max_per_day: int = 5, populated_days: int = 1, lookbac
         return p.get("upvotes") or (p.get("paper") or {}).get("upvotes") or 0
 
     now = now_jst()
+    effective_lookback = min(lookback_days, max_days_total) if max_days_total is not None else lookback_days
 
     seen_ids: set[str] = set()
     days_with_papers = 0
-    async with httpx.AsyncClient(proxy=settings.http_proxy, timeout=30, follow_redirects=True) as client:
-        for back in range(lookback_days + 1):
+    async with httpx.AsyncClient(proxy=settings.http_proxy, timeout=httpx.Timeout(30.0, connect=10.0), follow_redirects=True) as client:
+        for back in range(effective_lookback + 1):
             if days_with_papers >= populated_days:
                 break
             date = (now - timedelta(days=back)).strftime("%Y-%m-%d")
@@ -131,22 +136,7 @@ def _parse_entry_date(entry) -> datetime | None:
         or entry.findtext("{http://www.w3.org/2005/Atom}published")
         or entry.findtext("{http://www.w3.org/2005/Atom}updated")
     )
-    if not raw:
-        return None
-    raw = raw.strip()
-    # RSS pubDate is RFC 822 ("Thu, 11 Jun 2026 00:00:00 GMT")
-    try:
-        dt = parsedate_to_datetime(raw)
-        if dt:
-            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-    except (TypeError, ValueError):
-        pass
-    # Atom published/updated is ISO 8601 ("2026-06-11T23:35:17+00:00")
-    try:
-        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-    except ValueError:
-        return None
+    return parse_any_date(raw)
 
 ANTHROPIC_PAGES = [
     ("Anthropic News", "https://www.anthropic.com/news"),
@@ -234,19 +224,19 @@ async def fetch_ai_newsletters(max_per_feed: int = 5) -> list[dict]:
     return items
 
 
-async def fetch_ai_labs(max_per_feed: int = 4) -> list[dict]:
+async def fetch_ai_labs(max_per_feed: int = 4, anthropic_max_items: int = 5, minimax_max_items: int = 6) -> list[dict]:
     """Official AI lab / research-org blogs & technical reports (source='labs').
     Includes the Anthropic and MiniMax scrapers."""
     cutoff = now_jst() - timedelta(days=NEWSLETTER_RECENCY_DAYS)
 
-    async with httpx.AsyncClient(proxy=settings.http_proxy, timeout=30, follow_redirects=True) as client:
+    async with httpx.AsyncClient(proxy=settings.http_proxy, timeout=httpx.Timeout(30.0, connect=10.0), follow_redirects=True) as client:
         items = await _fetch_feed_items(client, AI_LABS_FEEDS, "labs", max_per_feed, cutoff)
 
     items.sort(key=lambda i: i.get("published_at") or "", reverse=True)
     items = items[:15]
 
-    items.extend(await _scrape_anthropic(client=None))
-    items.extend(await _scrape_minimax())
+    items.extend(await _scrape_anthropic(client=None, max_items=anthropic_max_items))
+    items.extend(await _scrape_minimax(max_items=minimax_max_items))
 
     logger.info("Fetched %d AI labs items (recency <= %dd)", len(items), NEWSLETTER_RECENCY_DAYS)
     return items
@@ -263,6 +253,7 @@ async def _scrape_minimax(client=None, max_items: int = 6) -> list[dict]:
         resp.raise_for_status()
         cards = re.findall(r'href="(/news/[^"]+)"[^>]*>(?:<[^>]+>)*\s*([^<]{3,90})', resp.text)
         seen = set()
+        today_iso = now_jst().isoformat()
         for path, title in cards:
             title = title.strip()
             if not title or path in seen:
@@ -277,6 +268,7 @@ async def _scrape_minimax(client=None, max_items: int = 6) -> list[dict]:
                 "language": None,
                 "topics": ["MiniMax"],
                 "published_at": None,
+                "_recent_fallback": today_iso,
             })
             if len(items) >= max_items:
                 break
@@ -310,6 +302,7 @@ async def _scrape_anthropic(client=None, max_items: int = 5) -> list[dict]:
         client = httpx.AsyncClient(proxy=settings.http_proxy, timeout=30, follow_redirects=True)
 
     try:
+        today_iso = now_jst().isoformat()
         for label, url in ANTHROPIC_PAGES:
             try:
                 resp = await client.get(url)
@@ -336,6 +329,7 @@ async def _scrape_anthropic(client=None, max_items: int = 5) -> list[dict]:
                         "language": None,
                         "topics": [label],
                         "published_at": None,
+                        "_recent_fallback": today_iso,
                     })
             except Exception as e:
                 logger.warning("Anthropic scrape failed for %s: %s", label, e)
@@ -383,24 +377,32 @@ def _fmt_param_count(model: dict) -> str:
     return f"{total / 1e6:.0f}M params"
 
 
-async def fetch_model_releases(max_items: int = 8) -> list[dict]:
+async def fetch_model_releases(
+    max_items: int = 8,
+    hf_trending_limit: int = 10,
+    gh_releases_per_page: int = 3,
+    org_limit: int = 5,
+    org_cutoff_days: int = 30,
+) -> list[dict]:
     items: list[dict] = []
     org_items: list[dict] = []
     cutoff = now_jst() - timedelta(days=7)
 
     async with httpx.AsyncClient(
-        proxy=settings.http_proxy, timeout=30, follow_redirects=True,
+        proxy=settings.http_proxy, timeout=httpx.Timeout(30.0, connect=10.0), follow_redirects=True,
     ) as client:
         # --- HuggingFace trending models ---
         try:
             resp = await client.get(
                 "https://huggingface.co/api/models",
-                params={"sort": "likes7d", "limit": 10, "expand[]": "safetensors"},
+                params={"sort": "likes7d", "limit": hf_trending_limit, "expand[]": "safetensors"},
             )
             resp.raise_for_status()
             for model in resp.json():
                 model_id = model.get("modelId") or model.get("id", "")
                 params = _fmt_param_count(model)
+                created = model.get("createdAt", "")
+                cdt = parse_any_date(created)
                 items.append({
                     "source": "model_release",
                     "title": model_id,
@@ -409,6 +411,7 @@ async def fetch_model_releases(max_items: int = 8) -> list[dict]:
                     "stars": model.get("likes"),
                     "language": None,
                     "topics": [model_id.split("/")[0]] if "/" in model_id else ["huggingface"],
+                    "published_at": cdt.isoformat() if cdt else None,
                 })
         except Exception as e:
             logger.warning("HuggingFace trending fetch failed: %s", e)
@@ -422,7 +425,7 @@ async def fetch_model_releases(max_items: int = 8) -> list[dict]:
             try:
                 resp = await client.get(
                     f"https://api.github.com/repos/{owner}/{repo}/releases",
-                    params={"per_page": 3},
+                    params={"per_page": gh_releases_per_page},
                     headers=headers,
                 )
                 resp.raise_for_status()
@@ -444,17 +447,18 @@ async def fetch_model_releases(max_items: int = 8) -> list[dict]:
                         "stars": None,
                         "language": None,
                         "topics": [owner],
+                        "published_at": pub_dt.isoformat(),
                     })
             except Exception as e:
                 logger.warning("GitHub release fetch failed for %s/%s: %s", owner, repo, e)
 
         # --- Tracked HF labs (GLM / MiniMax) — newest models by org ---
-        org_cutoff = now_jst() - timedelta(days=30)
+        org_cutoff = now_jst() - timedelta(days=org_cutoff_days)
         for org, label in HF_TRACKED_ORGS:
             try:
                 resp = await client.get(
                     "https://huggingface.co/api/models",
-                    params={"author": org, "sort": "createdAt", "direction": -1, "limit": 5, "expand[]": "safetensors"},
+                    params={"author": org, "sort": "createdAt", "direction": -1, "limit": org_limit, "expand[]": "safetensors"},
                 )
                 resp.raise_for_status()
                 for model in resp.json():
@@ -498,7 +502,7 @@ WEB_SEARCH_QUERIES = [
 ]
 
 
-async def fetch_web_search_news(max_per_query: int = 3) -> list[dict]:
+async def fetch_web_search_news(max_per_query: int = 3, timelimit: str = "w") -> list[dict]:
     items: list[dict] = []
     seen_urls: set[str] = set()
 
@@ -507,7 +511,7 @@ async def fetch_web_search_news(max_per_query: int = 3) -> list[dict]:
         with DDGS(proxy=settings.http_proxy) as ddgs:
             for query in WEB_SEARCH_QUERIES:
                 try:
-                    hits = list(ddgs.news(query, max_results=max_per_query, timelimit="w"))
+                    hits = list(ddgs.news(query, max_results=max_per_query, timelimit=timelimit))
                     results.extend(hits)
                 except Exception as e:
                     logger.warning("Web search failed for '%s': %s", query, e)
@@ -536,86 +540,15 @@ async def fetch_web_search_news(max_per_query: int = 3) -> list[dict]:
     return items
 
 
-# --- Article date enrichment + age filter ---------------------------------
-
-ARTICLE_MAX_AGE_DAYS = 180  # ~6 months
-
-# Sources whose items are time-sensitive "articles" and may arrive without a
-# date (mainly the Anthropic/MiniMax scrapers). Structured sources (arxiv,
-# hf_papers, github, model_release) are recent by construction, so we never
-# spend a web request probing their dates.
-_DATE_PROBE_SOURCES = {"labs", "newsletter", "voices", "web_search"}
-
-# Publication-date patterns, most reliable first. All capture an ISO-ish date.
-_DATE_META_PATTERNS = [
-    re.compile(r'<meta[^>]+(?:property|name)=["\'](?:article:published_time|article:published|datePublished|og:published_time|og:article:published_time)["\'][^>]+content=["\']([^"\']+)["\']', re.I),
-    re.compile(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\'](?:article:published_time|datePublished|og:published_time)["\']', re.I),
-    re.compile(r'"datePublished"\s*:\s*"([^"]+)"', re.I),
-    re.compile(r'<time[^>]+datetime=["\']([^"\']+)["\']', re.I),
-]
+# --- Article date enrichment + age filter (delegated to date_extractor) ---
 
 
-def _parse_iso_loose(value: str | None) -> datetime | None:
-    """Parse an ISO-ish date string to a tz-aware datetime (assume UTC if no tz)."""
-    if not value:
-        return None
-    s = value.strip().replace("Z", "+00:00")
-    # Try full ISO, then a bare YYYY-MM-DD prefix.
-    for candidate in (s, s[:10]):
-        try:
-            dt = datetime.fromisoformat(candidate)
-            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-        except ValueError:
-            continue
-    return None
-
-
-def _extract_date_from_html(html: str) -> datetime | None:
-    for pat in _DATE_META_PATTERNS:
-        m = pat.search(html)
-        if m:
-            dt = _parse_iso_loose(m.group(1))
-            if dt:
-                return dt
-    return None
-
-
-async def filter_articles_by_age(items: list[dict], max_age_days: int = ARTICLE_MAX_AGE_DAYS) -> list[dict]:
-    """Drop articles older than `max_age_days`. Items already carrying a
-    `published_at` are filtered directly; date-less items from article sources
-    are probed by fetching the page and reading its publication-date metadata.
-    Items whose date cannot be determined are KEPT (we never drop on a guess)."""
-    cutoff = now_jst() - timedelta(days=max_age_days)
-
-    # Items needing a web probe: no date yet, article-type source, http(s) URL.
-    to_probe = [
-        it for it in items
-        if not it.get("published_at")
-        and it.get("source") in _DATE_PROBE_SOURCES
-        and str(it.get("url", "")).startswith("http")
-    ]
-
-    if to_probe:
-        async with httpx.AsyncClient(proxy=settings.http_proxy, timeout=12, follow_redirects=True) as client:
-            async def _probe(it):
-                try:
-                    resp = await client.get(it["url"])
-                    resp.raise_for_status()
-                    dt = _extract_date_from_html(resp.text)
-                    if dt:
-                        it["published_at"] = dt.isoformat()
-                except Exception as e:
-                    logger.debug("Date probe failed for %s: %s", it.get("url"), e)
-            await asyncio.gather(*(_probe(it) for it in to_probe))
-
-    kept, dropped = [], 0
-    for it in items:
-        dt = _parse_iso_loose(it.get("published_at"))
-        if dt is not None and dt < cutoff:
-            dropped += 1
-            continue
-        kept.append(it)
-
-    if dropped:
-        logger.info("Age filter: dropped %d article(s) older than %d days", dropped, max_age_days)
-    return kept
+async def filter_articles_by_age(items: list[dict], max_age_days: int | None = None, llm_client=None, llm_model: str | None = None) -> list[dict]:
+    """Drop articles older than `max_age_days` using manual extraction plus
+    optional LLM fallback. Items whose date cannot be determined are dropped."""
+    return await enrich_and_filter_by_age(
+        items,
+        llm_client=llm_client,
+        llm_model=llm_model,
+        max_age_days=max_age_days,
+    )

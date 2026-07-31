@@ -86,6 +86,8 @@ Audit log for every pipeline execution.
 | is_test | BOOLEAN | |
 | teams_posted_at | TIMESTAMP | Set when the Teams card was posted |
 | teams_error | TEXT | Populated if the Teams post failed |
+| pre_score_count | INTEGER | Number of candidates entering LLM scoring |
+| refilled_sources | TEXT[] | Sources that triggered the refill wave |
 
 ---
 

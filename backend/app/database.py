@@ -89,6 +89,16 @@ async def get_pool() -> asyncpg.Pool:
                 )
             except Exception:
                 pass
+            # Migration: track candidate-pool metrics for refill diagnostics.
+            try:
+                await conn.execute(
+                    "ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS pre_score_count INTEGER"
+                )
+                await conn.execute(
+                    "ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS refilled_sources TEXT[]"
+                )
+            except Exception:
+                pass
             # Migration: normalize existing emails to lowercase so case variants
             # ("Aryan@..." vs "aryan@...") resolve to the same subscriber.
             try:

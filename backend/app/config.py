@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     top_n_items: int = 10
     dedup_window_days: int = 14
 
+    # Recency: articles/repos older than this many days are dropped before scoring.
+    max_article_age_days: int = 90
+
     class Config:
         env_file = ".env"
 

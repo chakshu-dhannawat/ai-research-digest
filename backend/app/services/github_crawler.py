@@ -73,6 +73,7 @@ def _enrich_repo(repo) -> dict | None:
         except Exception:
             pass
 
+        created_at = repo.created_at.isoformat() if repo.created_at else None
         return {
             "source": "github",
             "name": repo.name,
@@ -83,7 +84,8 @@ def _enrich_repo(repo) -> dict | None:
             "forks": repo.forks_count,
             "language": repo.language,
             "topics": repo.get_topics(),
-            "created_at": repo.created_at.isoformat(),
+            "created_at": created_at,
+            "published_at": created_at,
             "readme_snippet": readme_text,
         }
     except Exception as e:

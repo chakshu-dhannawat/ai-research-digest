@@ -41,7 +41,9 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
     error_message TEXT,
     is_test BOOLEAN NOT NULL DEFAULT FALSE,
     teams_posted_at TIMESTAMP,
-    teams_error TEXT
+    teams_error TEXT,
+    pre_score_count INTEGER,
+    refilled_sources TEXT[] DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS subscribers (
