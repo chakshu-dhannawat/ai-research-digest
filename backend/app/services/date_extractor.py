@@ -12,8 +12,14 @@ from app.utils import now_jst
 
 logger = logging.getLogger(__name__)
 
-# Sources whose items may lack dates and need probing / LLM fallback.
+# Sources whose items are articles/blogs where the publication date matters for recency.
+ARTICLE_SOURCES = {"labs", "newsletter", "voices", "web_search"}
+
+# Sources whose items may lack dates and need HTML / LLM probing.
 DATE_PROBE_SOURCES = {"labs", "newsletter", "voices", "web_search"}
+
+# Sources treated as "recent by construction" (GitHub/HF/model releases have their own date gates).
+STRUCTURED_SOURCES = {"github", "hf_papers", "model_release"}
 
 # Maximum age for articles (dynamic from settings, default 90 days = ~3 months).
 DEFAULT_MAX_AGE_DAYS = 90
@@ -247,12 +253,15 @@ async def enrich_and_filter_by_age(
     max_concurrent_html: int = 8,
     max_concurrent_llm: int = 4,
 ) -> list[dict]:
-    """Enrich items with publication dates and drop anything older than max_age_days.
+    """Enrich items with publication dates and drop stale articles.
 
-    - Uses existing `published_at` when present.
-    - Probes HTML for article-type sources with no date.
-    - Optionally calls an LLM to infer dates when manual extraction fails.
-    - Drops items whose date cannot be determined (no more "keep on guess").
+    - Structured sources (GitHub, HF papers, model releases) are considered recent
+      by construction and are always kept; their `published_at` is used only for
+      bookkeeping / sorting.
+    - Article sources (labs, newsletter, voices, web_search) are filtered to
+      `max_age_days`. The pipeline tries feed date → HTML metadata → LLM fallback.
+    - Scraped listing-page items without a date fall back to "today" once.
+    - Article items whose date cannot be determined are dropped.
     """
     if max_age_days is None:
         max_age_days = getattr(settings, "max_article_age_days", DEFAULT_MAX_AGE_DAYS)
@@ -333,14 +342,25 @@ async def enrich_and_filter_by_age(
             if to_llm:
                 await asyncio.gather(*(_probe_llm(it) for it in to_llm), return_exceptions=True)
 
-    # --- Apply cutoff. Undated items use a "recent fallback" only for items we
-    # scraped from current listing pages (Anthropic, MiniMax); all others are dropped. -
-    kept, dropped_old, dropped_undated = [], 0, 0
+    # --- Apply cutoff --------------------------------------------------------
+    kept, dropped_old, dropped_undated, kept_recent_by_construction = [], 0, 0, 0
     for it in items:
         dt = it.pop("_pub_dt", None)
         source = it.pop("_date_source", None)
         recent_fallback = it.pop("_recent_fallback", None)
+        item_src = it.get("source", "")
 
+        # Structured sources (GitHub, HF papers, model releases) use their own
+        # fetch-time filters and are always kept.
+        if item_src in STRUCTURED_SOURCES:
+            if dt:
+                it["published_at"] = dt.isoformat()
+                it["date_source"] = source or "fetch"
+            kept.append(it)
+            kept_recent_by_construction += 1
+            continue
+
+        # Article sources: try scraped listing-page fallback only if no real date.
         if dt is None and recent_fallback:
             dt = parse_any_date(recent_fallback)
             source = "recent_fallback"
@@ -358,7 +378,7 @@ async def enrich_and_filter_by_age(
         kept.append(it)
 
     logger.info(
-        "Recency filter (%dd): kept=%d dropped_old=%d dropped_undated=%d",
-        max_age_days, len(kept), dropped_old, dropped_undated,
+        "Recency filter (%dd): kept=%d (structured=%d) dropped_old=%d dropped_undated=%d",
+        max_age_days, len(kept), kept_recent_by_construction, dropped_old, dropped_undated,
     )
     return kept
