@@ -270,7 +270,7 @@ app.add_middleware(
 )
 ```
 
-Without this, browsers block requests from `http://iitgpu07.hon.otsuka-shokai:3737` to `http://iitgpu07.hon.otsuka-shokai:8585` (different ports = different origin). The middleware adds the required `Access-Control-Allow-*` headers to responses.
+Without this, browsers block requests from `http://iitgpu07.hon.otsuka-shokai.co.jp:3737` to `http://iitgpu07.hon.otsuka-shokai.co.jp:8585` (different ports = different origin). The middleware adds the required `Access-Control-Allow-*` headers to responses.
 
 `allow_origins=["*"]` is fine for internal tools. For public APIs, restrict to your actual domain: `["https://yourapp.com"]`.
 

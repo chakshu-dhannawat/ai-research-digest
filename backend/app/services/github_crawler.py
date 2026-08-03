@@ -37,9 +37,9 @@ def fetch_trending_repos(max_per_query: int = 5) -> list[dict]:
         for q in [q_new, q_growing]:
             logger.info("GitHub search: %s", q)
             try:
+                # Do not rely on results.totalCount — it is often unreliable for
+                # GitHub search and can return 0 even when results exist.
                 results = g.search_repositories(query=q, sort="stars", order="desc")
-                if results.totalCount == 0:
-                    continue
                 for repo in list(results[:max_per_query]):
                     if repo.full_name in seen:
                         continue

@@ -90,11 +90,17 @@ def send_email(html_body: str, recipients: list[str], subject: str | None = None
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = settings.sender_email
-    # BCC delivery: recipients are passed via the SMTP envelope only and kept out
-    # of the headers, so no recipient sees the others' addresses.
-    msg["To"] = settings.sender_email
+    # For small recipient lists (test sends) put the address in the visible To:
+    # header so corporate relays do not treat the message as suspicious.
+    # For larger lists, keep BCC privacy by putting the sender in To: and
+    # delivering to recipients only via the SMTP envelope.
+    if len(recipients) <= 3:
+        msg["To"] = ", ".join(recipients)
+    else:
+        msg["To"] = settings.sender_email
     msg.attach(MIMEText(html_body, "html", "utf-8"))
     _send_smtp(settings.sender_email, recipients, msg)
+    logger.info("Email sent to %d recipient(s) via %s:%s", len(recipients), settings.smtp_host, settings.smtp_port)
 
 
 def _send_smtp(sender: str, recipients: list[str], msg: MIMEMultipart) -> None:

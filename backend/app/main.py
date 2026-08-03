@@ -134,7 +134,12 @@ async def lifespan(app: FastAPI):
 
     scheduler.add_job(
         scheduled_pipeline,
-        CronTrigger(hour=settings.cron_hour, minute=settings.cron_minute, timezone="Asia/Tokyo"),
+        CronTrigger(
+            hour=settings.cron_hour,
+            minute=settings.cron_minute,
+            day_of_week="mon-fri",
+            timezone="Asia/Tokyo",
+        ),
         id="daily_newsletter",
         replace_existing=True,
         # A busy event loop can delay the fire past APScheduler's 1s default grace,
@@ -144,17 +149,20 @@ async def lifespan(app: FastAPI):
         coalesce=True,
     )
     # Safety net: if the scheduled job did not run or did not succeed for any reason,
-    # alert the developer shortly after the expected delivery time.
+    # alert the developer shortly after the expected delivery time. Runs on weekdays only.
     scheduler.add_job(
         daily_send_sentinel,
-        CronTrigger(hour=8, minute=10, timezone="Asia/Tokyo"),
+        CronTrigger(hour=8, minute=10, day_of_week="mon-fri", timezone="Asia/Tokyo"),
         id="daily_send_sentinel",
         replace_existing=True,
         misfire_grace_time=3600,
         coalesce=True,
     )
     scheduler.start()
-    logger.info("Scheduler started: pipeline at %02d:%02d JST, delivery by 08:00 JST", settings.cron_hour, settings.cron_minute)
+    logger.info(
+        "Scheduler started: pipeline at %02d:%02d JST on weekdays, delivery by 08:00 JST",
+        settings.cron_hour, settings.cron_minute,
+    )
 
     yield
 

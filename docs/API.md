@@ -1,8 +1,8 @@
 # API Reference
 
-Base URL: `http://iitgpu07.hon.otsuka-shokai:8585/api`
+Base URL: `http://iitgpu07.hon.otsuka-shokai.co.jp:8585/api`
 
-Auto-generated docs: `http://iitgpu07.hon.otsuka-shokai:8585/docs`
+Auto-generated docs: `http://iitgpu07.hon.otsuka-shokai.co.jp:8585/docs`
 
 ---
 

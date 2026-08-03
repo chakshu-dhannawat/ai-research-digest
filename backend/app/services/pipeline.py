@@ -46,7 +46,9 @@ _SOURCE_MINIMUMS = {
 }
 
 # Soft ceiling on total candidates before scoring to protect LLM cost/time.
-_MAX_PRESCORE_ITEMS = 50
+# Raised from 50 to 100 so the post-dedup pool still has enough fresh items
+# even when the 14-day dedup window removes many previously-sent articles.
+_MAX_PRESCORE_ITEMS = 100
 
 
 async def _safe_fetch(name: str, coro) -> list[dict]:
@@ -66,6 +68,34 @@ def _count_by_source(items: list[dict]) -> dict[str, int]:
         src = it.get("source", "unknown")
         counts[src] = counts.get(src, 0) + 1
     return counts
+
+
+def _is_monday_jst() -> bool:
+    """Return True if today (JST) is Monday — used to widen weekend coverage."""
+    return now_jst().weekday() == 0
+
+
+def _select_top_diverse(items: list[dict], top_n: int) -> list[dict]:
+    """Pick the top-N scored items while capping any single source.
+
+    Prevents one high-signal source (e.g. GitHub or model releases) from
+    crowding out newsletters, labs, voices, and web search in the final digest.
+    If the cap is too tight to fill top_n, it is relaxed until enough items
+    are selected.
+    """
+    max_base_cap = 3
+    for cap in range(max_base_cap, top_n + 1):
+        selected: list[dict] = []
+        counts: dict[str, int] = {}
+        for it in items:
+            src = it.get("source", "unknown")
+            if counts.get(src, 0) >= cap:
+                continue
+            selected.append(it)
+            counts[src] = counts.get(src, 0) + 1
+            if len(selected) >= top_n:
+                return selected
+    return items[:top_n]
 
 
 def _source_quality_key(item: dict):
@@ -137,10 +167,20 @@ async def run_pipeline(
     run_id = await _create_run(pool, is_test)
 
     try:
+        # --- Monday catch-up: scan the weekend for HF Daily Papers -------------
+        monday = _is_monday_jst()
+        if monday:
+            logger.info("Monday JST detected: widening HF Daily Papers lookback to cover the weekend")
+        hf_initial_params = {
+            "max_per_day": 10, "populated_days": 3, "lookback_days": 6, "max_days_total": 3,
+        } if monday else {
+            "max_per_day": 5, "populated_days": 1, "lookback_days": 6,
+        }
+
         # --- Initial fetch wave (concurrent, isolated per source) --------------
         initial_coros = {
             "github": asyncio.to_thread(fetch_trending_repos, max_per_query=5),
-            "hf_papers": fetch_hf_papers(max_per_day=5, populated_days=1, lookback_days=6),
+            "hf_papers": fetch_hf_papers(**hf_initial_params),
             "newsletter": fetch_ai_newsletters(max_per_feed=5),
             "labs": fetch_ai_labs(max_per_feed=4),
             "model_release": fetch_model_releases(max_items=8),
@@ -175,9 +215,14 @@ async def run_pipeline(
 
         if refill_sources:
             logger.info("Refilling sources below minimum: %s", deficits)
+            hf_refill_params = {
+                "max_per_day": 12, "populated_days": 4, "lookback_days": 14, "max_days_total": 4,
+            } if monday else {
+                "max_per_day": 8, "populated_days": 3, "lookback_days": 14, "max_days_total": 14,
+            }
             refill_params = {
                 "github": {"max_per_query": 10},
-                "hf_papers": {"max_per_day": 8, "populated_days": 3, "lookback_days": 14, "max_days_total": 14},
+                "hf_papers": hf_refill_params,
                 "newsletter": {"max_per_feed": 10},
                 "labs": {"max_per_feed": 10, "anthropic_max_items": 10, "minimax_max_items": 10},
                 "model_release": {"max_items": 16, "hf_trending_limit": 20, "gh_releases_per_page": 6, "org_limit": 10, "org_cutoff_days": 60},
@@ -241,7 +286,10 @@ async def run_pipeline(
         if len(eligible) < len(scored):
             logger.info("Digest floor: %d/%d items below score %d dropped from send (kept in catalog)",
                         len(scored) - len(eligible), len(scored), MIN_DIGEST_SCORE)
-        top_items = eligible[: settings.top_n_items]
+        top_items = _select_top_diverse(eligible, settings.top_n_items)
+        if len(top_items) < settings.top_n_items:
+            logger.info("Diverse top-%d selection returned %d items; digest may be thin today",
+                        settings.top_n_items, len(top_items))
 
         # Thin-day backfill: `scored` is already sorted best-first, so the next
         # leftovers are the least-bad of what's left, not arbitrary items.

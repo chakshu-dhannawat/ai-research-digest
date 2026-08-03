@@ -7,6 +7,8 @@ Every run (cron or manual) executes `run_pipeline()` in `backend/app/services/pi
 ```
 1. FETCH          Gather raw items from all sources concurrently
        │            (GitHub, HF Papers, newsletters, labs, voices, model releases, web)
+       │            On Monday, HF Daily Papers fetches the most recent 3 populated
+       │            days (up to Friday/Saturday/Sunday) so the weekend is covered.
        ▼
 2. RECENCY        Keep items published within the last 3 months (configurable via
        │            MAX_ARTICLE_AGE_DAYS). Date extraction order per item:
@@ -85,7 +87,7 @@ Via the UI: **Test Send** tab → enter email(s) → click Send.
 Via API:
 ```bash
 # Test run (skips dedup, skips mark-sent)
-curl -X POST http://iitgpu07.hon.otsuka-shokai:8585/api/pipeline/send-now \
+curl -X POST http://iitgpu07.hon.otsuka-shokai.co.jp:8585/api/pipeline/send-now \
   -H "Content-Type: application/json" \
   -d '{"recipients": ["you@example.com"]}'
 ```

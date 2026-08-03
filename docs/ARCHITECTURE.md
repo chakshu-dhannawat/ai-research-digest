@@ -4,7 +4,7 @@
 
 ```
                         ┌─────────────────────────────────────────┐
-                        │          Docker Compose (iitgpu07.hon.otsuka-shokai)      │
+                        │          Docker Compose (iitgpu07.hon.otsuka-shokai.co.jp)      │
                         │                                         │
   Browser ──:3737──►  │  frontend (nginx:alpine)                │
                         │    React + Vite SPA                     │
