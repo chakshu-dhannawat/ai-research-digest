@@ -1,8 +1,12 @@
+import html
 import logging
+import re
 import smtplib
 import time
+import uuid
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import formatdate
 from pathlib import Path
 
 from jinja2 import Template
@@ -84,12 +88,31 @@ def render_newsletter(items: list[dict], date_str: str | None = None, lang: str 
     return template.render(date=date_str, items=items, sections=sections, lang=lang, labels=labels, site_url=settings.site_url)
 
 
+def _html_to_text(html_body: str) -> str:
+    """Quick plain-text fallback for multipart/alternative emails."""
+    text = re.sub(r"<br\s*/?>", "\n", html_body, flags=re.IGNORECASE)
+    text = re.sub(r"</p>", "\n\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<li>", "\n- ", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = html.unescape(text)
+    # Collapse excessive whitespace
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def _message_id_domain() -> str:
+    """Derive a stable domain for Message-Id from the sender address."""
+    return settings.sender_email.split("@")[-1] or "otsuka-shokai.co.jp"
+
+
 def send_email(html_body: str, recipients: list[str], subject: str | None = None) -> None:
     subject = subject or f"🤖 AI Engineer Daily Digest — {now_jst().strftime('%Y-%m-%d')}"
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = settings.sender_email
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-Id"] = f"<{uuid.uuid4().hex}@{_message_id_domain()}>"
     # For small recipient lists (test sends) put the address in the visible To:
     # header so corporate relays do not treat the message as suspicious.
     # For larger lists, keep BCC privacy by putting the sender in To: and
@@ -98,6 +121,7 @@ def send_email(html_body: str, recipients: list[str], subject: str | None = None
         msg["To"] = ", ".join(recipients)
     else:
         msg["To"] = settings.sender_email
+    msg.attach(MIMEText(_html_to_text(html_body), "plain", "utf-8"))
     msg.attach(MIMEText(html_body, "html", "utf-8"))
     _send_smtp(settings.sender_email, recipients, msg)
     logger.info("Email sent to %d recipient(s) via %s:%s", len(recipients), settings.smtp_host, settings.smtp_port)
@@ -126,6 +150,8 @@ def send_alert_email(subject: str, body_text: str) -> None:
     msg["Subject"] = subject
     msg["From"] = settings.sender_email
     msg["To"] = settings.alert_email
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-Id"] = f"<{uuid.uuid4().hex}@{_message_id_domain()}>"
     msg.attach(MIMEText(body_text, "plain", "utf-8"))
 
     _send_smtp(settings.sender_email, [settings.alert_email], msg)
