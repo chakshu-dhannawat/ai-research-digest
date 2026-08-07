@@ -30,6 +30,8 @@ services:
       https_proxy: http://proxy.otsuka-shokai.co.jp:8080
       NO_PROXY: localhost,127.0.0.1,db,difgpu01.tdc.otsuka-shokai.co.jp,macdep01.tdc.otsuka-shokai.co.jp,mta-fm21.otsuka-shokai.co.jp,mta-fm22.otsuka-shokai.co.jp,10.0.0.0/8,.otsuka-shokai.co.jp
       no_proxy: localhost,127.0.0.1,db,difgpu01.tdc.otsuka-shokai.co.jp,macdep01.tdc.otsuka-shokai.co.jp,mta-fm21.otsuka-shokai.co.jp,mta-fm22.otsuka-shokai.co.jp,10.0.0.0/8,.otsuka-shokai.co.jp
+    volumes:
+      - ./dryrun_output:/app/dryrun_output
     depends_on:
       db:
         condition: service_healthy

@@ -40,7 +40,12 @@ def fetch_trending_repos(max_per_query: int = 5) -> list[dict]:
                 # Do not rely on results.totalCount — it is often unreliable for
                 # GitHub search and can return 0 even when results exist.
                 results = g.search_repositories(query=q, sort="stars", order="desc")
-                for repo in list(results[:max_per_query]):
+                # PaginatedList slicing can raise IndexError on empty results.
+                try:
+                    page = list(results[:max_per_query])
+                except IndexError:
+                    page = []
+                for repo in page:
                     if repo.full_name in seen:
                         continue
                     seen.add(repo.full_name)

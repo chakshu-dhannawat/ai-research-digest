@@ -62,6 +62,18 @@ async def send_now(req: InstantSendRequest):
     return PipelineStatus(run_id=0, status="started")
 
 
+@router.post("/pipeline/preview", response_model=PipelineStatus)
+async def preview_pipeline():
+    """Dry-run the full pipeline: fetch, score, select, but do NOT send email
+    or post to Teams. Artifacts are written to dryrun_output/ for review."""
+    global _running_task
+    if _running_task and not _running_task.done():
+        raise HTTPException(400, "Pipeline already running")
+    _running_task = asyncio.create_task(run_pipeline(dry_run=True))
+    await asyncio.sleep(0.5)
+    return PipelineStatus(run_id=0, status="started")
+
+
 @router.get("/newsletters", response_model=list[NewsletterOut])
 async def list_newsletters(limit: int = 30, include_test: bool = False):
     pool = await get_pool()

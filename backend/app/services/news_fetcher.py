@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 
@@ -296,13 +297,19 @@ async def fetch_ai_voices(max_per_feed: int = 4) -> list[dict]:
 
 
 async def _scrape_anthropic(client=None, max_items: int = 5) -> list[dict]:
+    """Scrape Anthropic listing pages.
+
+    Items are returned WITHOUT a forced recent-fallback date. The pipeline's
+    date extractor will probe each article page for a real publication date;
+    articles whose date cannot be determined are dropped. This prevents old
+    evergreen posts from appearing as today's news.
+    """
     items = []
     should_close = client is None
     if client is None:
         client = httpx.AsyncClient(proxy=settings.http_proxy, timeout=30, follow_redirects=True)
 
     try:
-        today_iso = now_jst().isoformat()
         for label, url in ANTHROPIC_PAGES:
             try:
                 resp = await client.get(url)
@@ -329,7 +336,6 @@ async def _scrape_anthropic(client=None, max_items: int = 5) -> list[dict]:
                         "language": None,
                         "topics": [label],
                         "published_at": None,
-                        "_recent_fallback": today_iso,
                     })
             except Exception as e:
                 logger.warning("Anthropic scrape failed for %s: %s", label, e)
@@ -382,7 +388,7 @@ async def fetch_model_releases(
     hf_trending_limit: int = 10,
     gh_releases_per_page: int = 3,
     org_limit: int = 5,
-    org_cutoff_days: int = 30,
+    org_cutoff_days: int = 14,
 ) -> list[dict]:
     items: list[dict] = []
     org_items: list[dict] = []
@@ -395,7 +401,7 @@ async def fetch_model_releases(
         try:
             resp = await client.get(
                 "https://huggingface.co/api/models",
-                params={"sort": "likes7d", "limit": hf_trending_limit, "expand[]": "safetensors"},
+                params={"sort": "likes7d", "limit": hf_trending_limit, "expand[]": ["safetensors", "createdAt"]},
             )
             resp.raise_for_status()
             for model in resp.json():
@@ -403,6 +409,10 @@ async def fetch_model_releases(
                 params = _fmt_param_count(model)
                 created = model.get("createdAt", "")
                 cdt = parse_any_date(created)
+                # The digest is about *new* releases; an old model that happens to
+                # trend this week is not a release announcement.
+                if cdt is None or cdt < cutoff:
+                    continue
                 items.append({
                     "source": "model_release",
                     "title": model_id,
@@ -458,7 +468,7 @@ async def fetch_model_releases(
             try:
                 resp = await client.get(
                     "https://huggingface.co/api/models",
-                    params={"author": org, "sort": "createdAt", "direction": -1, "limit": org_limit, "expand[]": "safetensors"},
+                    params={"author": org, "sort": "createdAt", "direction": -1, "limit": org_limit, "expand[]": ["safetensors", "createdAt"]},
                 )
                 resp.raise_for_status()
                 for model in resp.json():
@@ -493,12 +503,12 @@ async def fetch_model_releases(
     return items
 
 
+# Focused query set to reduce DuckDuckGo rate-limit risk while still catching
+# the two biggest categories: new models/tools and research/announcements.
 WEB_SEARCH_QUERIES = [
     "new AI model released this week",
-    "LLM breakthrough announcement today",
-    "new open source AI model 2026",
-    "AI research paper trending this week",
-    "new AI tool launch developer",
+    "LLM breakthrough announcement",
+    "new open source AI tool developer",
 ]
 
 
@@ -515,6 +525,9 @@ async def fetch_web_search_news(max_per_query: int = 3, timelimit: str = "w") ->
                     results.extend(hits)
                 except Exception as e:
                     logger.warning("Web search failed for '%s': %s", query, e)
+                # DuckDuckGo throttles rapid sequential queries; spacing them out
+                # dramatically reduces 403 rate-limit errors.
+                time.sleep(1.5)
         return results
 
     import asyncio

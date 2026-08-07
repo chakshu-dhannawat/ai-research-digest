@@ -49,7 +49,10 @@ class Settings(BaseSettings):
     dedup_window_days: int = 14
 
     # Recency: articles/repos older than this many days are dropped before scoring.
-    max_article_age_days: int = 90
+    # 45 days keeps a daily digest fresh while still catching monthly reports and
+    # papers that trend after publication. Structured sources (GitHub, HF papers,
+    # model releases) apply their own tighter fetch-time filters.
+    max_article_age_days: int = 45
 
     class Config:
         env_file = ".env"

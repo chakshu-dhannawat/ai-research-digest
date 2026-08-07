@@ -1,7 +1,9 @@
 import asyncio
+import json
 import logging
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 
 from app.config import settings
 from app.utils import now_jst
@@ -50,6 +52,51 @@ _SOURCE_MINIMUMS = {
 # even when the 14-day dedup window removes many previously-sent articles.
 _MAX_PRESCORE_ITEMS = 100
 
+# Where dry-run previews write their artifacts (no emails sent).
+# Project-relative so the files are visible on the host for review.
+# __file__ is /app/app/services/pipeline.py inside the container.
+_DRYRUN_DIR = Path(__file__).parent.parent.parent / "dryrun_output"
+
+
+def _save_dryrun_artifacts(
+    candidates: list[dict],
+    scored: list[dict],
+    selected: list[dict],
+    run_id: int,
+) -> None:
+    """Write fetch/score/select artifacts to disk for offline review."""
+    _DRYRUN_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    base = _DRYRUN_DIR / f"pipeline_dryrun_{ts}_run{run_id}"
+
+    def slim(items: list[dict]) -> list[dict]:
+        """Keep only review-useful fields to keep files readable."""
+        return [
+            {
+                "source": it.get("source"),
+                "title": it.get("title") or it.get("name"),
+                "url": it.get("url"),
+                "stars": it.get("stars"),
+                "relevance_score": it.get("relevance_score"),
+                "published_at": it.get("published_at"),
+                "topics": it.get("topics"),
+                "description": (it.get("description") or "")[:300],
+                "summary": (it.get("summary") or "")[:300],
+            }
+            for it in items
+        ]
+
+    (base.parent / f"{base.name}_candidates.json").write_text(
+        json.dumps(slim(candidates), ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    (base.parent / f"{base.name}_scored.json").write_text(
+        json.dumps(slim(scored), ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    (base.parent / f"{base.name}_selected.json").write_text(
+        json.dumps(slim(selected), ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    logger.info("Dry-run artifacts saved to %s_*", base)
+
 
 async def _safe_fetch(name: str, coro) -> list[dict]:
     """Run an async fetcher inside a try/except so one source never kills the run."""
@@ -76,26 +123,48 @@ def _is_monday_jst() -> bool:
 
 
 def _select_top_diverse(items: list[dict], top_n: int) -> list[dict]:
-    """Pick the top-N scored items while capping any single source.
+    """Pick the top-N scored items while guaranteeing source diversity.
 
-    Prevents one high-signal source (e.g. GitHub or model releases) from
-    crowding out newsletters, labs, voices, and web search in the final digest.
-    If the cap is too tight to fill top_n, it is relaxed until enough items
-    are selected.
+    - Every source that has eligible items gets at least one slot.
+    - No source can occupy more than 3 of the final slots.
+    - Remaining slots are filled by descending score within those caps.
+
+    This prevents hf_papers/labs from crowding out github, voices,
+    newsletters, and web_search in the final digest.
     """
-    max_base_cap = 3
-    for cap in range(max_base_cap, top_n + 1):
-        selected: list[dict] = []
-        counts: dict[str, int] = {}
-        for it in items:
-            src = it.get("source", "unknown")
-            if counts.get(src, 0) >= cap:
-                continue
-            selected.append(it)
-            counts[src] = counts.get(src, 0) + 1
-            if len(selected) >= top_n:
-                return selected
-    return items[:top_n]
+    if not items:
+        return []
+
+    selected: list[dict] = []
+    counts: dict[str, int] = {}
+    seen: set[int] = set()
+
+    # Pass 1: one best item per source so every active source is represented.
+    for it in items:
+        src = it.get("source", "unknown")
+        if counts.get(src, 0) > 0:
+            continue
+        selected.append(it)
+        seen.add(id(it))
+        counts[src] = 1
+        if len(selected) >= top_n:
+            return selected
+
+    # Pass 2: fill remaining slots, max 3 per source total.
+    max_per_source = 3
+    for it in items:
+        if id(it) in seen:
+            continue
+        src = it.get("source", "unknown")
+        if counts.get(src, 0) >= max_per_source:
+            continue
+        selected.append(it)
+        seen.add(id(it))
+        counts[src] = counts.get(src, 0) + 1
+        if len(selected) >= top_n:
+            return selected
+
+    return selected
 
 
 def _source_quality_key(item: dict):
@@ -150,19 +219,30 @@ def _digest_sort_key(item: dict) -> tuple:
     score = item.get("relevance_score") or 0
     rank = _SOURCE_RANK.get(item.get("source", ""), 9)
     desc_len = len(item.get("description") or "")
-    return (-score, rank, -desc_len)  # score desc, source rank asc, longer desc first
+    # Parse publication date for a recency tie-breaker (newer first). Missing
+    # dates sort last so they do not win ties over dated items.
+    pub_str = item.get("published_at") or ""
+    try:
+        pub_ts = datetime.fromisoformat(pub_str.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        pub_ts = 0.0
+    return (-score, -pub_ts, rank, -desc_len)
 
 
 async def run_pipeline(
     recipients: list[str] | None = None,
     is_test: bool = False,
     recipients_by_lang: dict[str, list[str]] | None = None,
+    dry_run: bool = False,
 ) -> dict:
     pool = await get_pool()
 
     # Re-evaluate LLM endpoints from the top each run so a recovered primary
     # (Qwen) is preferred again instead of sticking on a fallback.
     reset_llm_resolution()
+
+    if dry_run:
+        is_test = True  # ensure no external side effects
 
     run_id = await _create_run(pool, is_test)
 
@@ -260,7 +340,7 @@ async def run_pipeline(
                 )
                 all_items = _url_dedup(all_items + refill_items)
 
-        if not is_test:
+        if not is_test and not dry_run:
             all_items = await filter_already_sent(pool, all_items)
 
         all_items = _cap_candidates(all_items)
@@ -277,10 +357,12 @@ async def run_pipeline(
 
         # Persist the full scored set to the searchable catalog (deduped by URL).
         # Isolated so a catalog failure never blocks the newsletter send.
-        try:
-            await _save_fetched_items(pool, scored)
-        except Exception as e:
-            logger.warning("Failed to save fetched_items catalog: %s", e)
+        # In dry-run mode we skip this to avoid polluting the catalog.
+        if not dry_run:
+            try:
+                await _save_fetched_items(pool, scored)
+            except Exception as e:
+                logger.warning("Failed to save fetched_items catalog: %s", e)
 
         eligible = [it for it in scored if (it.get("relevance_score") or 0) >= MIN_DIGEST_SCORE]
         if len(eligible) < len(scored):
@@ -306,6 +388,17 @@ async def run_pipeline(
         if not top_items:
             await _finish_run(pool, run_id, "completed", items_after_dedup=0)
             return {"run_id": run_id, "status": "no_new_items", "items_sent": 0}
+
+        # Dry-run: save artifacts and stop before any external side effect.
+        if dry_run:
+            _save_dryrun_artifacts(all_items, scored, top_items, run_id)
+            await _finish_run(pool, run_id, "completed", items_after_dedup=len(top_items))
+            return {
+                "run_id": run_id,
+                "status": "dry_run",
+                "items_selected": len(top_items),
+                "source_counts": _count_by_source(top_items),
+            }
 
         # Build language -> recipients map. Explicit per-lang wins; else a single
         # English group from `recipients` or the configured default.

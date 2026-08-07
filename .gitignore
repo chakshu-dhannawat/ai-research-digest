@@ -22,3 +22,4 @@ dist/
 
 # Local data / logs
 *.log
+dryrun_output/
