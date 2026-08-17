@@ -1,12 +1,10 @@
 import asyncio
 import logging
 import re
-import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from duckduckgo_search import DDGS
 
 from app.config import settings
 from app.utils import now_jst
@@ -503,51 +501,80 @@ async def fetch_model_releases(
     return items
 
 
-# Focused query set to reduce DuckDuckGo rate-limit risk while still catching
-# the two biggest categories: new models/tools and research/announcements.
+# Google News RSS queries. Much more reliable than DuckDuckGo's unofficial
+# news endpoint, which has been returning 403 rate-limit errors consistently.
 WEB_SEARCH_QUERIES = [
-    "new AI model released this week",
+    "new AI model released",
     "LLM breakthrough announcement",
     "new open source AI tool developer",
 ]
 
 
+def _parse_google_news_rss(xml_text: str, max_items: int) -> list[dict]:
+    """Parse Google News RSS XML into item dicts."""
+    items: list[dict] = []
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as e:
+        logger.warning("Google News RSS parse error: %s", e)
+        return items
+
+    # Google News RSS namespace
+    ns = {"media": "http://search.yahoo.com/mrss/"}
+    for entry in root.findall(".//item")[:max_items]:
+        title = entry.findtext("title", default="").strip()
+        link = entry.findtext("link", default="").strip()
+        desc = entry.findtext("description", default="").strip()
+        # Strip HTML tags from description
+        desc = re.sub(r"<[^>]+>", "", desc)[:500]
+        pub = _parse_entry_date(entry)
+        if title and link:
+            items.append({
+                "source": "web_search",
+                "title": title,
+                "url": link,
+                "description": desc,
+                "stars": None,
+                "language": None,
+                "topics": ["web_search"],
+                "published_at": pub.isoformat() if pub else None,
+            })
+    return items
+
+
 async def fetch_web_search_news(max_per_query: int = 3, timelimit: str = "w") -> list[dict]:
+    """Fetch recent AI news via Google News RSS.
+
+    `timelimit` is accepted for API compatibility but ignored; Google News RSS
+    already returns recent results and does not expose a time-filter parameter.
+    """
     items: list[dict] = []
     seen_urls: set[str] = set()
 
-    def _search():
-        results = []
-        with DDGS(proxy=settings.http_proxy) as ddgs:
-            for query in WEB_SEARCH_QUERIES:
-                try:
-                    hits = list(ddgs.news(query, max_results=max_per_query, timelimit=timelimit))
-                    results.extend(hits)
-                except Exception as e:
-                    logger.warning("Web search failed for '%s': %s", query, e)
-                # DuckDuckGo throttles rapid sequential queries; spacing them out
-                # dramatically reduces 403 rate-limit errors.
-                time.sleep(1.5)
-        return results
-
-    import asyncio
-    raw_results = await asyncio.to_thread(_search)
-
-    for hit in raw_results:
-        url = hit.get("url", "")
-        if url in seen_urls:
-            continue
-        seen_urls.add(url)
-        items.append({
-            "source": "web_search",
-            "title": hit.get("title", ""),
-            "url": url,
-            "description": hit.get("body", "")[:500],
-            "stars": None,
-            "language": None,
-            "topics": ["web_search"],
-            "published_at": hit.get("date"),  # ddgs news returns ISO date
-        })
+    async with httpx.AsyncClient(
+        proxy=settings.http_proxy,
+        timeout=httpx.Timeout(30.0, connect=10.0),
+        follow_redirects=True,
+    ) as client:
+        for query in WEB_SEARCH_QUERIES:
+            try:
+                resp = await client.get(
+                    "https://news.google.com/rss/search",
+                    params={
+                        "q": query,
+                        "hl": "en-US",
+                        "gl": "US",
+                        "ceid": "US:en",
+                    },
+                )
+                resp.raise_for_status()
+                for it in _parse_google_news_rss(resp.text, max_per_query):
+                    if it["url"] in seen_urls:
+                        continue
+                    seen_urls.add(it["url"])
+                    items.append(it)
+            except Exception as e:
+                logger.warning("Google News RSS fetch failed for '%s': %s", query, e)
 
     logger.info("Fetched %d web search items", len(items))
     return items
