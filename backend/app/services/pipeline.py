@@ -82,6 +82,7 @@ def _save_dryrun_artifacts(
                 "topics": it.get("topics"),
                 "description": (it.get("description") or "")[:300],
                 "summary": (it.get("summary") or "")[:300],
+                "application": (it.get("application") or "")[:300],
             }
             for it in items
         ]
