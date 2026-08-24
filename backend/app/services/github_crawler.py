@@ -119,28 +119,45 @@ def _enrich_repo(client: httpx.Client, repo: dict) -> dict | None:
 
 
 def fetch_trending_repos(max_per_query: int = 5) -> list[dict]:
-    """Find trending AI repos created in the last week using the GitHub REST API.
+    """Find fresh trending AI repos using the GitHub REST API.
 
     Uses direct HTTPS calls instead of PyGithub for transparent rate-limit
     handling, retry logic, and to avoid PaginatedList slicing bugs that have
     caused production runs to return 0 repos.
+
+    Two complementary searches are run per topic:
+      1. Repos created in the last ~24 hours (brand new).
+      2. Repos pushed in the last ~24 hours, created in the last month, with
+         moderate star counts (currently gaining traction).
+
+    Searching only by `created:>7_days_ago` returns the same repos every day,
+    so they are all removed by the 14-day dedup filter. The daily `created:`
+    and `pushed:` windows keep the candidate pool fresh.
     """
+    yesterday = (now_jst() - timedelta(days=1)).strftime("%Y-%m-%d")
     week_ago = (now_jst() - timedelta(days=7)).strftime("%Y-%m-%d")
+    month_ago = (now_jst() - timedelta(days=30)).strftime("%Y-%m-%d")
 
     seen: set[str] = set()
     all_repos: list[dict] = []
 
     with httpx.Client(proxy=settings.http_proxy, timeout=httpx.Timeout(30.0, connect=10.0), follow_redirects=True) as client:
         for query_text in AI_SEARCH_QUERIES:
-            q = f"created:>{week_ago} stars:>5 {query_text}"
-            logger.info("GitHub search: %s", q)
-            repos = _search_repos(client, q, per_page=max_per_query)
-            for repo in repos:
-                full_name = repo.get("full_name")
-                if not full_name or full_name in seen:
-                    continue
-                seen.add(full_name)
-                all_repos.append(repo)
+            queries = [
+                # Brand-new repos from the last day
+                f"created:>{yesterday} stars:>3 {query_text}",
+                # Recently active repos (exclude mega-repos that never change)
+                f"pushed:>{yesterday} created:>{month_ago} stars:10..5000 {query_text}",
+            ]
+            for q in queries:
+                logger.info("GitHub search: %s", q)
+                repos = _search_repos(client, q, per_page=max_per_query)
+                for repo in repos:
+                    full_name = repo.get("full_name")
+                    if not full_name or full_name in seen:
+                        continue
+                    seen.add(full_name)
+                    all_repos.append(repo)
 
         logger.info("Found %d unique repos across all queries", len(all_repos))
 

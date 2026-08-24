@@ -52,11 +52,21 @@ def _truncate(text: str | None, max_len: int = 180) -> str:
 
 
 def _title_text(item: dict) -> str:
-    title = item.get("title") or item.get("name", "Untitled")
+    # GitHub items carry full_name; everything else uses title/name.
+    title = item.get("full_name") or item.get("title") or item.get("name", "Untitled")
     url = item.get("url", "")
     if url:
         return f"[{title}]({url})"
     return title
+
+
+def _subtitle_text(item: dict) -> str | None:
+    """Return a subtitle when full_name differs from title (e.g. GitHub repos)."""
+    full = item.get("full_name")
+    title = item.get("title") or item.get("name")
+    if full and title and full != title:
+        return title
+    return None
 
 
 def build_teams_card(items: list[dict]) -> dict:
@@ -64,7 +74,7 @@ def build_teams_card(items: list[dict]) -> dict:
     date_str = now_jst().strftime("%Y-%m-%d")
     body: list[dict] = [
         {"type": "TextBlock", "size": "Medium", "weight": "Bolder", "text": f"🤖 AI Engineer Daily Digest — {date_str}"},
-        {"type": "TextBlock", "text": f"{len(items)} curated items · English digest", "wrap": True, "isSubtle": True},
+        {"type": "TextBlock", "text": f"{len(items)} curated items", "wrap": True, "isSubtle": True},
     ]
 
     grouped = _group_items(items)
@@ -78,22 +88,74 @@ def build_teams_card(items: list[dict]) -> dict:
             "separator": idx > 0,
         })
         for item in section_items:
-            summary = _truncate(item.get("summary"), 180)
+            summary = _truncate(item.get("summary"), 160)
+            application = _truncate(item.get("application"), 120)
             score = item.get("relevance_score")
-            score_text = f" · score: {score:.1f}" if score is not None else ""
+            stars = item.get("stars")
+            language = item.get("language")
+            topics = item.get("topics") or []
+
+            # Compact metadata line
+            meta_parts = []
+            if score is not None:
+                meta_parts.append(f"score: {score:.0f}/10")
+            if stars:
+                meta_parts.append(f"⭐ {stars:,}")
+            if language:
+                meta_parts.append(f"lang: {language}")
+            meta_text = " · ".join(meta_parts)
 
             body.append({
                 "type": "TextBlock",
                 "text": _title_text(item),
+                "weight": "Bolder",
                 "wrap": True,
             })
+
+            subtitle = _subtitle_text(item)
+            if subtitle:
+                body.append({
+                    "type": "TextBlock",
+                    "text": subtitle,
+                    "isSubtle": True,
+                    "wrap": True,
+                    "spacing": "None",
+                })
+
+            if meta_text:
+                body.append({
+                    "type": "TextBlock",
+                    "text": meta_text,
+                    "isSubtle": True,
+                    "wrap": True,
+                    "spacing": "None",
+                })
+
+            if topics:
+                body.append({
+                    "type": "TextBlock",
+                    "text": "🏷️ " + ", ".join(str(t) for t in topics[:6]),
+                    "isSubtle": True,
+                    "wrap": True,
+                    "spacing": "None",
+                })
+
             if summary:
                 body.append({
                     "type": "TextBlock",
-                    "text": f"{summary}{score_text}",
+                    "text": summary,
                     "wrap": True,
                     "isSubtle": True,
-                    "spacing": "None",
+                    "spacing": "Small",
+                })
+
+            if application:
+                body.append({
+                    "type": "TextBlock",
+                    "text": f"💡 **How to apply:** {application}",
+                    "wrap": True,
+                    "color": "Good",
+                    "spacing": "Small",
                 })
 
     body.append({
