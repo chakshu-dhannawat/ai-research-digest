@@ -41,10 +41,17 @@ def _rate_limit_wait(resp: httpx.Response) -> float:
     return 0
 
 
-def _search_repos(client: httpx.Client, query: str, per_page: int, max_retries: int = 3) -> list[dict]:
+def _search_repos(
+    client: httpx.Client,
+    query: str,
+    per_page: int,
+    sort: str = "stars",
+    order: str = "desc",
+    max_retries: int = 3,
+) -> list[dict]:
     """Call GitHub search/repositories directly; retry on rate-limit or transient errors."""
     url = f"{_GITHUB_API_BASE}/search/repositories"
-    params = {"q": query, "sort": "stars", "order": "desc", "per_page": per_page}
+    params = {"q": query, "sort": sort, "order": order, "per_page": per_page}
 
     for attempt in range(1, max_retries + 1):
         try:
@@ -125,16 +132,21 @@ def fetch_trending_repos(max_per_query: int = 5) -> list[dict]:
     handling, retry logic, and to avoid PaginatedList slicing bugs that have
     caused production runs to return 0 repos.
 
-    Two complementary searches are run per topic:
-      1. Repos created in the last ~24 hours (brand new).
-      2. Repos pushed in the last ~24 hours, created in the last month, with
+    Three complementary searches are run per topic:
+      1. Repos created in the last 3 days, sorted by newest first (catches
+         repos created after the previous production run at 07:50 JST).
+      2. Repos created in the last week with at least a few stars, sorted by
+         newest first (wider net for the weekly cycle).
+      3. Repos pushed in the last 3 days, created in the last month, with
          moderate star counts (currently gaining traction).
 
-    Searching only by `created:>7_days_ago` returns the same repos every day,
-    so they are all removed by the 14-day dedup filter. The daily `created:`
-    and `pushed:` windows keep the candidate pool fresh.
+    Sorting by recency instead of stars prevents the same high-star repos from
+    dominating the results every day and being removed by the 14-day dedup
+    filter. The production run at 07:50 JST only sees ~8 hours of the current
+    UTC day, so a multi-day window is required.
     """
     yesterday = (now_jst() - timedelta(days=1)).strftime("%Y-%m-%d")
+    three_days_ago = (now_jst() - timedelta(days=3)).strftime("%Y-%m-%d")
     week_ago = (now_jst() - timedelta(days=7)).strftime("%Y-%m-%d")
     month_ago = (now_jst() - timedelta(days=30)).strftime("%Y-%m-%d")
 
@@ -143,15 +155,17 @@ def fetch_trending_repos(max_per_query: int = 5) -> list[dict]:
 
     with httpx.Client(proxy=settings.http_proxy, timeout=httpx.Timeout(30.0, connect=10.0), follow_redirects=True) as client:
         for query_text in AI_SEARCH_QUERIES:
-            queries = [
-                # Brand-new repos from the last day
-                f"created:>{yesterday} stars:>3 {query_text}",
+            queries: list[tuple[str, str, str]] = [
+                # Very fresh repos: last 3 days, newest first
+                (f"created:>{three_days_ago} stars:>3 {query_text}", "created", "desc"),
+                # Weekly new repos: last 7 days, newest first
+                (f"created:>{week_ago} stars:>5 {query_text}", "created", "desc"),
                 # Recently active repos (exclude mega-repos that never change)
-                f"pushed:>{yesterday} created:>{month_ago} stars:10..5000 {query_text}",
+                (f"pushed:>{three_days_ago} created:>{month_ago} stars:10..5000 {query_text}", "updated", "desc"),
             ]
-            for q in queries:
-                logger.info("GitHub search: %s", q)
-                repos = _search_repos(client, q, per_page=max_per_query)
+            for q, sort, order in queries:
+                logger.info("GitHub search: %s (sort=%s)", q, sort)
+                repos = _search_repos(client, q, per_page=max_per_query, sort=sort, order=order)
                 for repo in repos:
                     full_name = repo.get("full_name")
                     if not full_name or full_name in seen:

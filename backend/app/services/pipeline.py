@@ -260,7 +260,7 @@ async def run_pipeline(
 
         # --- Initial fetch wave (concurrent, isolated per source) --------------
         initial_coros = {
-            "github": asyncio.to_thread(fetch_trending_repos, max_per_query=5),
+            "github": asyncio.to_thread(fetch_trending_repos, max_per_query=10),
             "hf_papers": fetch_hf_papers(**hf_initial_params),
             "newsletter": fetch_ai_newsletters(max_per_feed=5),
             "labs": fetch_ai_labs(max_per_feed=4),
