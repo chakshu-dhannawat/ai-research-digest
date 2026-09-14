@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     # Microsoft Teams channel Incoming Webhook URL. Leave empty to skip Teams delivery.
     teams_webhook_url: str = ""
 
+    # Email delivery. Prefer Resend when RESEND_API_KEY is set; otherwise fall back
+    # to the configured SMTP relay.
+    resend_api_key: str = ""
     smtp_host: str = "mta-fm21.otsuka-shokai.co.jp"
     smtp_port: int = 25
     sender_email: str = "chakshu@otsuka-shokai.co.jp"

@@ -9,6 +9,7 @@ from email.mime.text import MIMEText
 from email.utils import formatdate
 from pathlib import Path
 
+import httpx
 from jinja2 import Template
 
 from app.config import settings
@@ -108,6 +109,17 @@ def _message_id_domain() -> str:
 def send_email(html_body: str, recipients: list[str], subject: str | None = None) -> None:
     subject = subject or f"🤖 AI Engineer Daily Digest — {now_jst().strftime('%Y-%m-%d')}"
 
+    if settings.resend_api_key:
+        _send_resend(
+            settings.sender_email,
+            recipients,
+            subject,
+            html_body=html_body,
+            text_body=_html_to_text(html_body),
+        )
+        logger.info("Email sent to %d recipient(s) via Resend", len(recipients))
+        return
+
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = settings.sender_email
@@ -144,8 +156,61 @@ def _send_smtp(sender: str, recipients: list[str], msg: MIMEMultipart) -> None:
             time.sleep(delay)
 
 
+def _send_resend(
+    sender: str,
+    recipients: list[str],
+    subject: str,
+    html_body: str,
+    text_body: str,
+) -> None:
+    """Send via the Resend transactional email API.
+
+    Resend is the recommended option for new users: sign up, copy the API key,
+    and you can send from onboarding@resend.dev without verifying a domain.
+    """
+    payload = {
+        "from": sender,
+        "to": recipients,
+        "subject": subject,
+        "html": html_body,
+        "text": text_body,
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.resend_api_key}",
+        "Content-Type": "application/json",
+    }
+    proxies = None
+    if settings.http_proxy:
+        proxies = {"http://": settings.http_proxy, "https://": settings.http_proxy}
+
+    for attempt in range(1, 4):
+        try:
+            with httpx.Client(timeout=30, proxies=proxies) as client:
+                r = client.post("https://api.resend.com/emails", json=payload, headers=headers)
+                r.raise_for_status()
+            return
+        except Exception as e:
+            if attempt == 3:
+                logger.error("Resend send failed after 3 attempts: %s", e)
+                raise
+            delay = 10 * attempt
+            logger.warning("Resend send attempt %d/3 failed (%s); retrying in %ds", attempt, e, delay)
+            time.sleep(delay)
+
+
 def send_alert_email(subject: str, body_text: str) -> None:
     """Notify the configured developer address when the newsletter fails to send."""
+    if settings.resend_api_key:
+        _send_resend(
+            settings.sender_email,
+            [settings.alert_email],
+            subject,
+            html_body=f"<pre>{html.escape(body_text)}</pre>",
+            text_body=body_text,
+        )
+        logger.info("Alert email sent to %s via Resend", settings.alert_email)
+        return
+
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = settings.sender_email
