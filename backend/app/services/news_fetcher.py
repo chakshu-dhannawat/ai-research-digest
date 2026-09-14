@@ -117,11 +117,16 @@ AI_VOICES_FEEDS = [
 # The Anthropic and MiniMax scrapers also feed into this category.
 AI_LABS_FEEDS = [
     ("OpenAI", "https://openai.com/news/rss.xml"),
+    ("OpenAI Developers / Cookbook", "https://developers.openai.com/rss.xml"),
     ("Google DeepMind", "https://deepmind.google/blog/rss.xml"),
     ("Google Research", "https://research.google/blog/rss/"),
     ("Hugging Face", "https://huggingface.co/blog/feed.xml"),
     ("Together AI", "https://www.together.ai/blog/rss.xml"),
     ("Qwen", "https://qwenlm.github.io/blog/index.xml"),
+    ("vLLM Blog", "https://vllm.ai/blog/rss.xml"),
+    ("SWE-bench", "https://github.com/SWE-bench/SWE-bench/releases.atom"),
+    ("MTEB", "https://github.com/embeddings-benchmark/mteb/releases.atom"),
+    ("MCP Docs", "https://github.com/modelcontextprotocol/docs/commits/main.atom"),
 ]
 
 NEWSLETTER_RECENCY_DAYS = 14
