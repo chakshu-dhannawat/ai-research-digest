@@ -86,8 +86,10 @@ async def fetch_hf_papers(max_per_day: int = 5, populated_days: int = 1, lookbac
     return items
 
 
+NEWSLETTER_RECENCY_DAYS = 14
+
 # Active, frequently-updated AI blogs (verified live). The recency filter in
-# fetch_ai_newsletters drops anything older than NEWSLETTER_RECENCY_DAYS, so
+# _fetch_rss_category drops anything older than NEWSLETTER_RECENCY_DAYS, so
 # slow-publishing feeds simply contribute nothing when they have no fresh post.
 # --- Three distinct categories (all verified live; same recency filter) ---
 
@@ -129,7 +131,12 @@ AI_LABS_FEEDS = [
     ("MCP Docs", "https://github.com/modelcontextprotocol/docs/commits/main.atom"),
 ]
 
-NEWSLETTER_RECENCY_DAYS = 14
+# Maximum items kept after recency-sorting each RSS category.
+_RSS_CATEGORY_CAP = {
+    "newsletter": 20,
+    "labs": 15,
+    "voices": 15,
+}
 
 
 def _parse_entry_date(entry) -> datetime | None:
@@ -214,34 +221,47 @@ async def _fetch_feed_items(client, feeds, source: str, max_per_feed: int, cutof
     return items
 
 
-async def fetch_ai_newsletters(max_per_feed: int = 5) -> list[dict]:
+async def _fetch_rss_category(
+    feeds: list[tuple[str, str]],
+    source: str,
+    max_per_feed: int,
+) -> list[dict]:
+    """Fetch, recency-filter, and cap one RSS category (newsletter/labs/voices).
+
+    All three categories share the same cutoff, parser, and sort/cap pattern;
+    this helper keeps the wrappers below small and consistent.
+    """
     cutoff = now_jst() - timedelta(days=NEWSLETTER_RECENCY_DAYS)
+    async with httpx.AsyncClient(
+        proxy=settings.http_proxy, timeout=httpx.Timeout(30.0, connect=10.0), follow_redirects=True
+    ) as client:
+        items = await _fetch_feed_items(client, feeds, source, max_per_feed, cutoff)
 
-    async with httpx.AsyncClient(proxy=settings.http_proxy, timeout=30, follow_redirects=True) as client:
-        items = await _fetch_feed_items(client, AI_NEWSLETTER_FEEDS, "newsletter", max_per_feed, cutoff)
-
-    # Newest first across all feeds (undated items sort last), then cap to keep
-    # LLM scoring time bounded so delivery stays before 09:00 JST.
     items.sort(key=lambda i: i.get("published_at") or "", reverse=True)
-    items = items[:20]
+    items = items[:_RSS_CATEGORY_CAP.get(source, 15)]
+    return items
+
+
+async def fetch_ai_newsletters(max_per_feed: int = 5) -> list[dict]:
+    """AI news outlets, digests, and company/product blogs (source='newsletter')."""
+    items = await _fetch_rss_category(AI_NEWSLETTER_FEEDS, "newsletter", max_per_feed)
     logger.info("Fetched %d newsletter items (recency <= %dd)", len(items), NEWSLETTER_RECENCY_DAYS)
+    return items
+
+
+async def fetch_ai_voices(max_per_feed: int = 4) -> list[dict]:
+    """Named individual practitioners sharing expertise (source='voices')."""
+    items = await _fetch_rss_category(AI_VOICES_FEEDS, "voices", max_per_feed)
+    logger.info("Fetched %d AI voices items (recency <= %dd)", len(items), NEWSLETTER_RECENCY_DAYS)
     return items
 
 
 async def fetch_ai_labs(max_per_feed: int = 4, anthropic_max_items: int = 5, minimax_max_items: int = 6) -> list[dict]:
     """Official AI lab / research-org blogs & technical reports (source='labs').
     Includes the Anthropic and MiniMax scrapers."""
-    cutoff = now_jst() - timedelta(days=NEWSLETTER_RECENCY_DAYS)
-
-    async with httpx.AsyncClient(proxy=settings.http_proxy, timeout=httpx.Timeout(30.0, connect=10.0), follow_redirects=True) as client:
-        items = await _fetch_feed_items(client, AI_LABS_FEEDS, "labs", max_per_feed, cutoff)
-
-    items.sort(key=lambda i: i.get("published_at") or "", reverse=True)
-    items = items[:15]
-
+    items = await _fetch_rss_category(AI_LABS_FEEDS, "labs", max_per_feed)
     items.extend(await _scrape_anthropic(client=None, max_items=anthropic_max_items))
     items.extend(await _scrape_minimax(max_items=minimax_max_items))
-
     logger.info("Fetched %d AI labs items (recency <= %dd)", len(items), NEWSLETTER_RECENCY_DAYS)
     return items
 
@@ -283,19 +303,6 @@ async def _scrape_minimax(client=None, max_items: int = 6) -> list[dict]:
             await client.aclose()
 
     logger.info("Scraped %d MiniMax items", len(items))
-    return items
-
-
-async def fetch_ai_voices(max_per_feed: int = 4) -> list[dict]:
-    """Named individual practitioners sharing expertise (source='voices')."""
-    cutoff = now_jst() - timedelta(days=NEWSLETTER_RECENCY_DAYS)
-
-    async with httpx.AsyncClient(proxy=settings.http_proxy, timeout=30, follow_redirects=True) as client:
-        items = await _fetch_feed_items(client, AI_VOICES_FEEDS, "voices", max_per_feed, cutoff)
-
-    items.sort(key=lambda i: i.get("published_at") or "", reverse=True)
-    items = items[:15]
-    logger.info("Fetched %d AI voices items (recency <= %dd)", len(items), NEWSLETTER_RECENCY_DAYS)
     return items
 
 

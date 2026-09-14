@@ -24,12 +24,14 @@ services:
       - "8585:8585"
     env_file: ./backend/.env
     environment:
-      HTTP_PROXY: http://proxy.otsuka-shokai.co.jp:8080
-      HTTPS_PROXY: http://proxy.otsuka-shokai.co.jp:8080
-      http_proxy: http://proxy.otsuka-shokai.co.jp:8080
-      https_proxy: http://proxy.otsuka-shokai.co.jp:8080
-      NO_PROXY: localhost,127.0.0.1,db,difgpu01.tdc.otsuka-shokai.co.jp,macdep01.tdc.otsuka-shokai.co.jp,mta-fm21.otsuka-shokai.co.jp,mta-fm22.otsuka-shokai.co.jp,10.0.0.0/8,.otsuka-shokai.co.jp
-      no_proxy: localhost,127.0.0.1,db,difgpu01.tdc.otsuka-shokai.co.jp,macdep01.tdc.otsuka-shokai.co.jp,mta-fm21.otsuka-shokai.co.jp,mta-fm22.otsuka-shokai.co.jp,10.0.0.0/8,.otsuka-shokai.co.jp
+      # Proxy settings are read from .env. Empty values are fine for environments
+      # without a corporate proxy.
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      http_proxy: ${http_proxy:-}
+      https_proxy: ${https_proxy:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,db}
+      no_proxy: ${no_proxy:-localhost,127.0.0.1,db}
     volumes:
       - ./dryrun_output:/app/dryrun_output
     depends_on:
