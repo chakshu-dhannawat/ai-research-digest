@@ -4,6 +4,8 @@ A self-hosted, LLM-curated daily newsletter for AI engineering teams.
 
 It fetches content from research labs, practitioner blogs, GitHub repos, model releases, and news outlets; scores every item with a local or hosted LLM; and delivers a concise, source-diverse digest by email and Microsoft Teams every weekday morning.
 
+![The digest UI](docs/images/digest-ui.png)
+
 ---
 
 ## Why I built this
