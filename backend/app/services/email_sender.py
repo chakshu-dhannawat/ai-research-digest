@@ -48,12 +48,12 @@ _SECTION_TITLES = {
 _LABELS = {
     "en": {
         "apply": "💡 How to apply",
-        "tagline": "Curated for AI Engineers @ Otsuka",
+        "tagline": "Curated for AI Engineers & Researchers",
         "explore": "🔎 Browse all articles & subscribe",
     },
     "ja": {
         "apply": "💡 活用方法",
-        "tagline": "大塚商会 AIエンジニア向けダイジェスト",
+        "tagline": "AIエンジニア・研究者向けダイジェスト",
         "explore": "🔎 すべての記事を見る・購読設定",
     },
 }
