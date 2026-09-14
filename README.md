@@ -20,7 +20,65 @@ It fetches content from research labs, practitioner blogs, GitHub repos, model r
 
 ## 🚀 Quick Start
 
-### 1. Clone & configure
+### 1. Prerequisites
+
+You need:
+
+- **Docker & Docker Compose** installed.
+- **An OpenAI-compatible LLM endpoint** (local vLLM, TGI, LiteLLM proxy, OpenAI, etc.).
+- **A GitHub personal access token** (raises search rate limits from 10 to 30 requests/minute).
+- **An SMTP relay** to send email (Gmail, Mailgun, AWS SES, your company relay, etc.).
+- *(Optional)* **A Microsoft Teams incoming webhook** if you want Teams posts.
+
+### 2. Get your credentials
+
+#### GitHub token
+
+1. Go to GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic).
+2. Generate a new token. **No scopes are required** for public repo search, but authentication raises rate limits.
+3. Copy the token (starts with `ghp_`).
+
+#### LLM endpoint
+
+If you have a local vLLM server:
+
+```bash
+# example local endpoint
+LLM_BASE_URL=http://localhost:8000/v1
+LLM_MODEL=Qwen/Qwen3.5-72B-Instruct
+LLM_API_KEY=not-needed-for-local
+```
+
+If you use OpenAI:
+
+```bash
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=gpt-4o-mini
+LLM_API_KEY=sk-...
+```
+
+Any provider with an OpenAI-compatible chat completions API works.
+
+#### SMTP relay
+
+For Gmail:
+
+```bash
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SENDER_EMAIL=you@gmail.com
+```
+
+You will need an app password if you use Gmail 2FA.
+
+#### Microsoft Teams webhook (optional)
+
+1. In Teams, go to the channel → ... → Connectors → Incoming Webhook.
+2. Create a webhook and copy the URL.
+3. Set `TEAMS_WEBHOOK_URL=<url>` in `.env`.
+4. Leave it empty if you only want email delivery.
+
+### 3. Clone & configure
 
 ```bash
 git clone https://github.com/chakshu-dhannawat/ai-research-digest.git
@@ -28,28 +86,29 @@ cd ai-research-digest
 cp backend/.env.example backend/.env
 ```
 
-Edit `backend/.env` with your credentials:
+Edit `backend/.env` and fill in your values:
 
 | Variable | What it's for | Example |
 |----------|---------------|---------|
-| `LLM_BASE_URL` | OpenAI-compatible endpoint for scoring | `http://localhost:8000/v1` |
+| `LLM_BASE_URL` | OpenAI-compatible endpoint | `http://localhost:8000/v1` |
 | `LLM_API_KEY` | API key for the LLM endpoint | `sk-...` |
-| `LLM_MODEL` | Model name | `Qwen/Qwen3.5-122B-A10B` |
-| `GITHUB_TOKEN` | GitHub PAT (raises search rate limits) | `ghp_...` |
+| `LLM_MODEL` | Model name | `Qwen/Qwen3.5-72B-Instruct` |
+| `GITHUB_TOKEN` | GitHub PAT | `ghp_...` |
 | `SMTP_HOST` / `SMTP_PORT` | Outgoing mail relay | `smtp.gmail.com` / `587` |
 | `SENDER_EMAIL` | From address | `newsletter@example.com` |
+| `ALERT_EMAIL` | Alert address if pipeline fails | `admin@example.com` |
 | `DEFAULT_RECIPIENTS` | Comma-separated subscriber list | `a@example.com,b@example.com` |
-| `TEAMS_WEBHOOK_URL` | Optional Teams incoming webhook | leave empty to disable |
+| `TEAMS_WEBHOOK_URL` | Optional Teams webhook | leave empty to disable |
 
 > 🔒 `backend/.env` is git-ignored. Never commit it.
 
-### 2. Start the stack
+### 4. Start the stack
 
 ```bash
 docker compose up -d
 ```
 
-### 3. Verify
+### 5. Verify
 
 ```bash
 curl http://localhost:8585/api/health
@@ -62,7 +121,7 @@ curl http://localhost:8585/api/health
 | Backend API | http://localhost:8585 | FastAPI + scheduler |
 | Database | localhost:5435 | PostgreSQL |
 
-### 4. Run a dry-run (no emails sent)
+### 6. Run a dry-run (no emails sent)
 
 ```bash
 make preview
@@ -70,7 +129,7 @@ make preview
 
 Check `dryrun_output/` for the candidate list, scored items, and final selection.
 
-### 5. Send a real digest
+### 7. Send a real digest
 
 ```bash
 make send-now
