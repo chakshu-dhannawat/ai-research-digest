@@ -3,7 +3,7 @@ import logging
 import httpx
 
 from app.config import settings
-from app.utils import now_jst
+from app.utils import format_digest_date, now_jst
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,12 @@ _SECTION_TITLES = {
     "hf_papers": "🤗 HuggingFace Trending Papers",
     "arxiv": "📄 arXiv Papers",
 }
+
+_LABELS = {
+    "apply": "💡 How to apply",
+}
+
+_MAX_TEAMS_ITEMS = 25
 
 
 def _group_items(items: list[dict]) -> list[tuple[str, list[dict]]]:
@@ -48,16 +54,13 @@ def _truncate(text: str | None, max_len: int = 180) -> str:
     text = (text or "").strip().replace("\n", " ")
     if len(text) <= max_len:
         return text
-    return text[: max_len - 3].rstrip() + "..."
+    truncated = text[: max_len - 3].rsplit(" ", 1)[0]
+    return truncated.rstrip(".,;:") + "..."
 
 
 def _title_text(item: dict) -> str:
     # GitHub items carry full_name; everything else uses title/name.
-    title = item.get("full_name") or item.get("title") or item.get("name", "Untitled")
-    url = item.get("url", "")
-    if url:
-        return f"[{title}]({url})"
-    return title
+    return item.get("full_name") or item.get("title") or item.get("name", "Untitled")
 
 
 def _subtitle_text(item: dict) -> str | None:
@@ -79,21 +82,32 @@ def build_teams_card(items: list[dict]) -> dict:
 
     grouped = _group_items(items)
     visible_groups = [(t, s) for t, s in grouped if s]
+
+    total_items = 0
+    truncated = False
+
     for idx, (section_title, section_items) in enumerate(visible_groups):
         body.append({
             "type": "TextBlock",
             "text": section_title,
             "weight": "Bolder",
             "spacing": "Medium" if idx == 0 else "Large",
-            "separator": idx > 0,
+            "separator": True,
         })
+
         for item in section_items:
+            if total_items >= _MAX_TEAMS_ITEMS:
+                truncated = True
+                break
+            total_items += 1
+
             summary = _truncate(item.get("summary"), 160)
             application = _truncate(item.get("application"), 120)
             score = item.get("relevance_score")
             stars = item.get("stars")
             language = item.get("language")
             topics = item.get("topics") or []
+            url = item.get("url", "")
 
             # Compact metadata line
             meta_parts = []
@@ -105,7 +119,9 @@ def build_teams_card(items: list[dict]) -> dict:
                 meta_parts.append(f"lang: {language}")
             meta_text = " · ".join(meta_parts)
 
-            body.append({
+            item_body: list[dict] = []
+
+            item_body.append({
                 "type": "TextBlock",
                 "text": _title_text(item),
                 "weight": "Bolder",
@@ -114,7 +130,7 @@ def build_teams_card(items: list[dict]) -> dict:
 
             subtitle = _subtitle_text(item)
             if subtitle:
-                body.append({
+                item_body.append({
                     "type": "TextBlock",
                     "text": subtitle,
                     "isSubtle": True,
@@ -123,7 +139,7 @@ def build_teams_card(items: list[dict]) -> dict:
                 })
 
             if meta_text:
-                body.append({
+                item_body.append({
                     "type": "TextBlock",
                     "text": meta_text,
                     "isSubtle": True,
@@ -132,7 +148,7 @@ def build_teams_card(items: list[dict]) -> dict:
                 })
 
             if topics:
-                body.append({
+                item_body.append({
                     "type": "TextBlock",
                     "text": "🏷️ " + ", ".join(str(t) for t in topics[:6]),
                     "isSubtle": True,
@@ -141,7 +157,7 @@ def build_teams_card(items: list[dict]) -> dict:
                 })
 
             if summary:
-                body.append({
+                item_body.append({
                     "type": "TextBlock",
                     "text": summary,
                     "wrap": True,
@@ -150,13 +166,51 @@ def build_teams_card(items: list[dict]) -> dict:
                 })
 
             if application:
-                body.append({
+                item_body.append({
                     "type": "TextBlock",
-                    "text": f"💡 **How to apply:** {application}",
-                    "wrap": True,
+                    "text": _LABELS["apply"],
+                    "weight": "Bolder",
                     "color": "Good",
                     "spacing": "Small",
                 })
+                item_body.append({
+                    "type": "TextBlock",
+                    "text": application,
+                    "wrap": True,
+                    "spacing": "None",
+                })
+
+            if url:
+                item_body.append({
+                    "type": "ActionSet",
+                    "actions": [
+                        {
+                            "type": "Action.OpenUrl",
+                            "title": "Open article",
+                            "url": url,
+                        }
+                    ],
+                })
+
+            body.append({
+                "type": "Container",
+                "separator": True,
+                "spacing": "Medium",
+                "items": item_body,
+            })
+
+        if truncated:
+            break
+
+    if truncated:
+        remaining = len(items) - total_items
+        body.append({
+            "type": "TextBlock",
+            "text": f"...and {remaining} more items. View the full digest in the web UI.",
+            "wrap": True,
+            "isSubtle": True,
+            "spacing": "Medium",
+        })
 
     body.append({
         "type": "ActionSet",

@@ -13,7 +13,7 @@ import httpx
 from jinja2 import Template
 
 from app.config import settings
-from app.utils import now_jst
+from app.utils import format_digest_date, now_jst
 
 logger = logging.getLogger(__name__)
 
@@ -50,17 +50,19 @@ _LABELS = {
         "apply": "💡 How to apply",
         "tagline": "Curated for AI Engineers & Researchers",
         "explore": "🔎 Browse all articles & subscribe",
+        "footer": "Powered by LLM",
     },
     "ja": {
         "apply": "💡 活用方法",
         "tagline": "AIエンジニア・研究者向けダイジェスト",
         "explore": "🔎 すべての記事を見る・購読設定",
+        "footer": "LLM 搭載",
     },
 }
 
 
 def render_newsletter(items: list[dict], date_str: str | None = None, lang: str = "en") -> str:
-    date_str = date_str or now_jst().strftime("%B %d, %Y")
+    date_str = date_str or format_digest_date(fmt="%B %d, %Y")
     template = Template(_TEMPLATE_PATH.read_text())
 
     model_items = [i for i in items if i.get("source") == "model_release"]
@@ -103,11 +105,11 @@ def _html_to_text(html_body: str) -> str:
 
 def _message_id_domain() -> str:
     """Derive a stable domain for Message-Id from the sender address."""
-    return settings.sender_email.split("@")[-1] or "otsuka-shokai.co.jp"
+    return settings.sender_email.split("@")[-1]
 
 
 def send_email(html_body: str, recipients: list[str], subject: str | None = None) -> None:
-    subject = subject or f"🤖 AI Engineer Daily Digest — {now_jst().strftime('%Y-%m-%d')}"
+    subject = subject or f"🤖 AI Engineer Daily Digest — {format_digest_date()}"
 
     if settings.resend_api_key:
         _send_resend(

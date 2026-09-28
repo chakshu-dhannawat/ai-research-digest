@@ -12,3 +12,8 @@ def now_jst() -> datetime:
     recency cutoffs so the system's notion of 'today' matches the JST calendar
     day the newsletter is sent on (the cron also fires in Asia/Tokyo)."""
     return datetime.now(JST)
+
+
+def format_digest_date(dt=None, fmt="%Y-%m-%d") -> str:
+    """Format a JST datetime for display. Defaults to today."""
+    return (dt or now_jst()).strftime(fmt)
