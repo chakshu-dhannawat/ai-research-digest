@@ -162,6 +162,21 @@ Anthropic-Engineering agent-loops post -> 8-10; bare "LangChain"/"transformers"/
 mega-repo -> 1-3 (even 100k+ stars); "build your first RAG app" or funding news -> 1-2; \
 robotics/embodied-AI application with no transferable method -> 1-2.
 
+   Model-release-specific scoring (overrides the famous-repo down-weight where conflicting):
+   - model_weights (new model family or checkpoint from a top lab, e.g. Qwen, DeepSeek, Llama, \
+Gemma): start at 7-8 by default because the lab tracks new open weights for on-prem serving \
+and fine-tuning. Raise to 9-10 only when the release includes clear technical depth — \
+architecture changes, training details, benchmarks, context-length / multilingual / \
+tokenizer specifics, or a notable capability jump. Lower below 7 only for hotfixes, minor \
+checkpoints, or bare reposts with no technical information.
+   - inference_framework (vLLM, Mistral Inference, etc.): 6-8 for major features, performance \
+wins, or quantization/serving improvements that affect the lab's stack; 3-5 for routine bug \
+fixes or tiny ergonomic changes.
+   - sdk (OpenAI Python, Anthropic SDK, Transformers client wrappers): 1-3 unless the release \
+explicitly announces a NEW model capability, a breaking API change, or a major feature the \
+lab would adopt. Patch/minor SDK bumps with only bug fixes or type tweaks score 1-2.
+   The "famous mega-repo -> 1-3" rule does NOT apply to new model-family / weights releases.
+
 2. **Summary** (2-3 sentences): Explain WHAT the item is (its core \
 contribution or purpose) and WHY it matters technically (what problem it \
 solves, what improvement it offers, or why the approach is notable). Be \
@@ -279,6 +294,10 @@ def score_and_summarize(items: list[dict]) -> list[dict]:
                 meta.append(f"stars={item.get('stars')}")
             if item.get("topics"):
                 meta.append("topics=" + ", ".join(str(t) for t in item.get("topics", [])))
+            if item.get("release_type"):
+                meta.append(f"release_type={item.get('release_type')}")
+            if item.get("release_subtype"):
+                meta.append(f"release_subtype={item.get('release_subtype')}")
             if meta:
                 block.append("  " + " | ".join(meta))
             desc = (item.get("description") or "")[:350]

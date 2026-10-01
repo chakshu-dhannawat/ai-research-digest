@@ -216,6 +216,27 @@ def _cap_candidates(items: list[dict]) -> list[dict]:
     return preserved + extras[:allowed_extra]
 
 
+def _apply_release_score_guard(scored: list[dict]) -> None:
+    """Boost under-scored model releases so they are not filtered out by the
+    general-purpose rubric. Famous mega-repos still get a floor, but new model
+    weights and inference-framework releases deserve a higher floor.
+
+    - model_weights: floor of 7
+    - inference_framework: floor of 6
+    """
+    for item in scored:
+        score = item.get("relevance_score") or 0
+        rel_type = item.get("release_type")
+        if rel_type == "model_weights" and score < 7:
+            item["relevance_score"] = max(score, 7)
+            logger.info("Release score guard raised model_weights %r from %d to %d",
+                        item.get("title"), score, item["relevance_score"])
+        elif rel_type == "inference_framework" and score < 6:
+            item["relevance_score"] = max(score, 6)
+            logger.info("Release score guard raised inference_framework %r from %d to %d",
+                        item.get("title"), score, item["relevance_score"])
+
+
 def _digest_sort_key(item: dict) -> tuple:
     score = item.get("relevance_score") or 0
     rank = _SOURCE_RANK.get(item.get("source", ""), 9)
@@ -354,6 +375,7 @@ async def run_pipeline(
                           pre_score_count=pre_score_count)
 
         scored = await asyncio.to_thread(score_and_summarize, all_items)
+        _apply_release_score_guard(scored)
         scored.sort(key=_digest_sort_key)
 
         # Persist the full scored set to the searchable catalog (deduped by URL).

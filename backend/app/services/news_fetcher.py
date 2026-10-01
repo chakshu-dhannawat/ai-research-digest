@@ -357,17 +357,25 @@ async def _scrape_anthropic(client=None, max_items: int = 5) -> list[dict]:
     return items
 
 
-GITHUB_MODEL_REPOS = [
+GITHUB_SDK_REPOS = {
     ("openai", "openai-python"),
+    ("anthropics", "anthropic-sdk-python"),
+    ("huggingface", "transformers"),
+}
+
+GITHUB_INFERENCE_REPOS = {
+    ("vllm-project", "vllm"),
+    ("mistralai", "mistral-inference"),
+}
+
+GITHUB_WEIGHT_REPOS = {
     ("QwenLM", "Qwen3"),
     ("deepseek-ai", "DeepSeek-V3"),
     ("meta-llama", "llama-models"),
     ("google", "gemma_pytorch"),
-    ("anthropics", "anthropic-sdk-python"),
-    ("mistralai", "mistral-inference"),
-    ("vllm-project", "vllm"),
-    ("huggingface", "transformers"),
-]
+}
+
+GITHUB_MODEL_REPOS = list(GITHUB_SDK_REPOS | GITHUB_INFERENCE_REPOS | GITHUB_WEIGHT_REPOS)
 
 # Labs that ship on HuggingFace (no GitHub releases) — track their newest models
 # directly by org. (org_id, brand label used for tagging). These are the reputable
@@ -379,6 +387,62 @@ HF_TRACKED_ORGS = [
     ("Qwen", "Qwen"),          # Alibaba Qwen
     ("moonshotai", "Kimi"),    # Moonshot AI — Kimi
 ]
+
+
+def _classify_github_release(owner: str, repo: str) -> str:
+    """Classify a GitHub release by the repo's category."""
+    key = (owner, repo)
+    if key in GITHUB_WEIGHT_REPOS:
+        return "model_weights"
+    if key in GITHUB_INFERENCE_REPOS:
+        return "inference_framework"
+    return "sdk"
+
+
+def _is_trivial_sdk_release(tag: str, body: str) -> bool:
+    """Return True for routine SDK patch/minor releases without major signals.
+
+    These are SDK client releases that do not announce a new model capability
+    or breaking API change. The LLM prompt already down-weights famous repos,
+    but filtering them here keeps the digest focused on high-signal releases.
+    """
+    text = f"{tag or ''}\n{body or ''}".lower()
+
+    # Major release tags (e.g., v1.0.0, v2.0.0) are non-trivial.
+    # Pre-release markers and explicit major/breaking keywords also pass.
+    major_signals = [
+        "new model", "model support", "announce", "breaking change",
+        "deprecated", "benchmark", "new capability", "new capabilities",
+        "major release", "rc", "beta", "alpha",
+    ]
+    if any(sig in text for sig in major_signals):
+        return False
+
+    body_lower = (body or "").lower()
+    # A bare changelog summary with no substantive content is routine.
+    is_bare_changelog = (
+        "full changelog" in body_lower
+        and len((body or "").strip()) < 150
+    )
+    # A bare list of changes with no narrative or substantive detail.
+    is_bare_release_notes = (
+        body_lower.count("\n-") >= 1
+        and "## " not in body_lower
+        and len((body or "").strip()) < 200
+    )
+
+    # Patch-only tags and SDK minor releases with bare changelogs are trivial.
+    m = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", tag or "")
+    if m:
+        major, minor, patch = map(int, m.groups())
+        if patch > 0:
+            return True
+        if is_bare_changelog or is_bare_release_notes:
+            return True
+        return False
+
+    # Fallback: if the body is extremely short, treat as trivial.
+    return len((body or "").strip()) < 120
 
 
 def _fmt_param_count(model: dict) -> str:
@@ -432,6 +496,8 @@ async def fetch_model_releases(
                     "language": None,
                     "topics": [model_id.split("/")[0]] if "/" in model_id else ["huggingface"],
                     "published_at": cdt.isoformat() if cdt else None,
+                    "release_type": "model_weights",
+                    "release_subtype": "huggingface_model",
                 })
         except Exception as e:
             logger.warning("HuggingFace trending fetch failed: %s", e)
@@ -458,16 +524,22 @@ async def fetch_model_releases(
                     if pub_dt < cutoff:
                         continue
                     tag = release.get("tag_name", "")
+                    body = release.get("body") or ""
+                    rel_type = _classify_github_release(owner, repo)
+                    if rel_type == "sdk" and _is_trivial_sdk_release(tag, body):
+                        continue
                     name = release.get("name") or tag
                     items.append({
                         "source": "model_release",
                         "title": f"{owner}/{repo} {name}",
                         "url": release.get("html_url", ""),
-                        "description": (release.get("body") or "")[:500],
+                        "description": body[:500],
                         "stars": None,
                         "language": None,
                         "topics": [owner],
                         "published_at": pub_dt.isoformat(),
+                        "release_type": rel_type,
+                        "release_subtype": "github_release",
                     })
             except Exception as e:
                 logger.warning("GitHub release fetch failed for %s/%s: %s", owner, repo, e)
@@ -503,6 +575,8 @@ async def fetch_model_releases(
                         "language": None,
                         "topics": [label],
                         "published_at": cdt.isoformat() if cdt else None,
+                        "release_type": "model_weights",
+                        "release_subtype": "huggingface_model",
                     })
             except Exception as e:
                 logger.warning("HF org fetch failed for %s: %s", org, e)

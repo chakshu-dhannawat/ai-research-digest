@@ -74,7 +74,7 @@ def _subtitle_text(item: dict) -> str | None:
 
 def build_teams_card(items: list[dict]) -> dict:
     """Build a Microsoft Teams Adaptive Card payload for the daily digest."""
-    date_str = now_jst().strftime("%Y-%m-%d")
+    date_str = format_digest_date()
     body: list[dict] = [
         {"type": "TextBlock", "size": "Medium", "weight": "Bolder", "text": f"🤖 AI Engineer Daily Digest — {date_str}"},
         {"type": "TextBlock", "text": f"{len(items)} curated items", "wrap": True, "isSubtle": True},
@@ -101,8 +101,7 @@ def build_teams_card(items: list[dict]) -> dict:
                 break
             total_items += 1
 
-            summary = _truncate(item.get("summary"), 160)
-            application = _truncate(item.get("application"), 120)
+            summary = (item.get("summary") or "").strip().replace("\n", " ")
             score = item.get("relevance_score")
             stars = item.get("stars")
             language = item.get("language")
@@ -163,21 +162,6 @@ def build_teams_card(items: list[dict]) -> dict:
                     "wrap": True,
                     "isSubtle": True,
                     "spacing": "Small",
-                })
-
-            if application:
-                item_body.append({
-                    "type": "TextBlock",
-                    "text": _LABELS["apply"],
-                    "weight": "Bolder",
-                    "color": "Good",
-                    "spacing": "Small",
-                })
-                item_body.append({
-                    "type": "TextBlock",
-                    "text": application,
-                    "wrap": True,
-                    "spacing": "None",
                 })
 
             if url:
